@@ -78,8 +78,9 @@ Then restart `dsh web` and open **Settings → 人设卡**: type a name + conten
   once more** and the section appears.
 - Suggest putting work-quality rules in the card (e.g. "task quality first")
   so roleplay never degrades real work.
-- Tested against DSH `0.1.0-rc.6`.
+- Tested against DSH `0.1.0-rc.6`, `0.1.0-rc.7`, and `0.1.0-rc.8`.
 
 ## License
 
 MIT
+

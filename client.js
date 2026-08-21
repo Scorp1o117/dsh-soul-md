@@ -160,7 +160,7 @@ window.__ModuleLoader__.load({
       var [error, setError] = react.useState(null);
 
       react.useEffect(function () {
-        scope.load();
+        if (typeof scope.load === "function") scope.load();
         var alive = true;
         var sync = function () { if (alive) setSnapshot(scope.getSnapshot()); };
         var un = typeof scope.subscribe === "function" ? scope.subscribe(sync) : null;
@@ -186,7 +186,7 @@ window.__ModuleLoader__.load({
         setBusy(true); setNotice0();
         scope.set("workspaces", next).then(function () {
           setBusy(false); setNotice(t("saved"));
-          if (scope.load) scope.load();
+          if (typeof scope.load === "function") scope.load();
         }).catch(function (e) {
           setBusy(false); setError(t("error") + ": " + String(e && e.message || e));
         });
@@ -205,7 +205,7 @@ window.__ModuleLoader__.load({
         scope.set("cards", next).then(function () {
           setBusy(false); setNotice(t("saved"));
           setCardDraft({ name: "", content: "" });
-          if (scope.load) scope.load();
+          if (typeof scope.load === "function") scope.load();
         }).catch(function (e) {
           setBusy(false); setError(t("error") + ": " + String(e && e.message || e));
         });
@@ -225,7 +225,7 @@ window.__ModuleLoader__.load({
         var p2 = name === active ? scope.unset("active") : Promise.resolve();
         Promise.all([p1, p2]).then(function () {
           setBusy(false); setNotice(t("saved"));
-          if (scope.load) scope.load();
+          if (typeof scope.load === "function") scope.load();
         }).catch(function (e) {
           setBusy(false); setError(t("error") + ": " + String(e && e.message || e));
         });
@@ -235,7 +235,7 @@ window.__ModuleLoader__.load({
         setBusy(true); setNotice0();
         scope.set("active", name).then(function () {
           setBusy(false); setNotice(t("saved"));
-          if (scope.load) scope.load();
+          if (typeof scope.load === "function") scope.load();
         }).catch(function (e) {
           setBusy(false); setError(t("error") + ": " + String(e && e.message || e));
         });
@@ -275,7 +275,7 @@ window.__ModuleLoader__.load({
           : scope.set("memory", next);
         p.then(function () {
           setBusy(false); setNotice(t("saved"));
-          if (scope.load) scope.load();
+          if (typeof scope.load === "function") scope.load();
         }).catch(function (e) {
           setBusy(false); setError(t("error") + ": " + String(e && e.message || e));
         });
@@ -392,7 +392,7 @@ window.__ModuleLoader__.load({
       var sessionId = props.sessionId;
       var [snapshot, setSnapshot] = react.useState(function () { return scope.getSnapshot(); });
       react.useEffect(function () {
-        scope.load();
+        if (typeof scope.load === "function") scope.load();
         var alive = true;
         var sync = function () { if (alive) setSnapshot(scope.getSnapshot()); };
         var un = typeof scope.subscribe === "function" ? scope.subscribe(sync) : null;
@@ -412,7 +412,7 @@ window.__ModuleLoader__.load({
         if (v === "") delete next[sessionId];
         else next[sessionId] = v;
         scope.set("sessions", next).then(function () {
-          if (scope.load) scope.load();
+          if (typeof scope.load === "function") scope.load();
         }).catch(function () {});
       }
       return h("label", { className: "__sm_switch", title: t("switchTitle") },
@@ -460,3 +460,4 @@ window.__ModuleLoader__.load({
     return module.exports;
   }
 });
+
