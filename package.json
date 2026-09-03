@@ -1,65 +1,64 @@
 {
-    "name":  "dsh-soul-md",
-    "version":  "0.5.9",
-    "description":  "DeepSeek Harness 的 soul.md 风格人设 + 长期记忆插件：设置页输入人设卡名称和内容即可，文件由插件自动管理；可按工作区指定人设、聊天框可给会话单独切人设；AI 可自行演化人设与记忆（soul_read/soul_update/memory_*）。",
-    "type":  "module",
-    "main":  "index.js",
-    "exports":  {
-                    ".":  "./index.js",
-                    "./client":  "./client.js",
-                    "./package.json":  "./package.json"
-                },
-    "dsh":  {
-                "bundle":  {
-                               "patch":  "./cordis.patch.yml"
-                           },
-                "client":  {
-                               "platform":  "web"
-                           }
-            },
-    "files":  [
-                  "index.js",
-                  "client.js",
-                  "cordis.patch.yml",
-                  "README.md",
-                  "README.zh.md",
-                  "LICENSE",
-                  "examples",
-                  "vendor"
-              ],
-    "homepage":  "https://github.com/Scorp1o117/dsh-soul-md",
-    "keywords":  [
-                     "dsh",
-                     "dsh-plugin",
-                     "deepseek-harness",
-                     "persona",
-                     "soul",
-                     "memory",
-                     "roleplay",
-                     "system-prompt"
-                 ],
-    "license":  "MIT",
-    "engines":  {
-                    "node":  "\u003e=20.18"
-                },
-    "repository":  {
-                       "type":  "git",
-                       "url":  "git+https://github.com/Scorp1o117/dsh-soul-md.git"
-                   },
-    "bugs":  {
-                 "url":  "https://github.com/Scorp1o117/dsh-soul-md/issues"
-             },
-    "dependencies":  {
-                         "@deepseek-ai/schemastery":  "^3.18.1"
-                     },
-    "peerDependencies":  {
-                             "react":  "^18.2.0",
-                             "@deepseek-ai/dsh-home-paths":  "^0.1.0-rc.7 || ^0.1.1-rc.1 || ^0.1.2-rc.1",
-                             "@deepseek-ai/dsh-settings":  "^0.1.0-rc.7 || ^0.1.1-rc.1 || ^0.1.2-rc.1",
-                             "@deepseek-ai/dsh-tools":  "^0.1.0-rc.7 || ^0.1.1-rc.1 || ^0.1.2-rc.1"
-                         },
-    "scripts":  {
-                    "test":  "node tests/settings-scope-compat.test.mjs"
-                }
+    "name": "dsh-soul-md",
+    "version": "0.6.0",
+    "description": "DeepSeek Harness 的 soul.md 风格人设 + 长期记忆插件：设置页输入人设卡名称和内容即可，文件由插件自动管理；可按工作区指定人设、聊天框可给会话单独切人设；AI 可自行演化人设与记忆（soul_read/soul_update/memory_*）。",
+    "type": "module",
+    "main": "index.js",
+    "exports": {
+        ".": "./index.js",
+        "./client": "./client.js",
+        "./package.json": "./package.json"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        },
+        "client": {
+            "platform": "web"
+        }
+    },
+    "files": [
+        "index.js",
+        "client.js",
+        "cordis.patch.yml",
+        "README.md",
+        "README.zh.md",
+        "LICENSE",
+        "examples",
+        "vendor"
+    ],
+    "homepage": "https://github.com/Scorp1o117/dsh-soul-md",
+    "keywords": [
+        "dsh",
+        "dsh-plugin",
+        "deepseek-harness",
+        "persona",
+        "soul",
+        "memory",
+        "roleplay",
+        "system-prompt"
+    ],
+    "license": "MIT",
+    "engines": {
+        "node": ">=20.18"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Scorp1o117/dsh-soul-md.git"
+    },
+    "bugs": {
+        "url": "https://github.com/Scorp1o117/dsh-soul-md/issues"
+    },
+    "dependencies": {
+        "@deepseek-ai/schemastery": "^3.18.1"
+    },
+    "peerDependencies": {
+        "react": "^18.2.0",
+        "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.7 || ^0.1.1-rc.1 || ^0.1.2-rc.1",
+        "@deepseek-ai/dsh-settings": "^0.1.0-rc.7 || ^0.1.1-rc.1 || ^0.1.2-rc.1",
+        "@deepseek-ai/dsh-tools": "^0.1.0-rc.7 || ^0.1.1-rc.1 || ^0.1.2-rc.1"
+    },
+    "scripts": {
+        "test": "node tests/settings-scope-compat.test.mjs"
+    }
 }
-
