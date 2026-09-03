@@ -54,9 +54,9 @@
                      },
     "peerDependencies":  {
                              "react":  "^18.2.0",
-                             "@deepseek-ai/dsh-home-paths":  "^0.1.0-rc.7 || ^0.1.1-rc.1",
-                             "@deepseek-ai/dsh-settings":  "^0.1.0-rc.7 || ^0.1.1-rc.1",
-                             "@deepseek-ai/dsh-tools":  "^0.1.0-rc.7 || ^0.1.1-rc.1"
+                             "@deepseek-ai/dsh-home-paths":  "^0.1.0-rc.7 || ^0.1.1-rc.1 || ^0.1.2-rc.1",
+                             "@deepseek-ai/dsh-settings":  "^0.1.0-rc.7 || ^0.1.1-rc.1 || ^0.1.2-rc.1",
+                             "@deepseek-ai/dsh-tools":  "^0.1.0-rc.7 || ^0.1.1-rc.1 || ^0.1.2-rc.1"
                          },
     "scripts":  {
                     "test":  "node tests/settings-scope-compat.test.mjs"

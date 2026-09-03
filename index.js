@@ -35,7 +35,6 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join, dirname } from "node:path";
 import z from "@deepseek-ai/schemastery";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
-import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
 /** Cordis plugin name. */
@@ -43,7 +42,7 @@ const name = "soul-md";
 /** Services this plugin needs injected from the host tree. */
 const inject = ["systemPrompt", "tools"];
 /** Settings namespace owned by this plugin (Web UI settings section). */
-const NS = settingsNamespace("soul-md");
+const NS = "soul-md";
 
 /** Section names; deliberately distinct from the registry-owned `deployment:persona`. */
 const SECTION_PERSONA = "soul:persona";
@@ -262,7 +261,25 @@ function apply(ctx, config) {
   }, "soul-md.sections()");
 
   // ── settings-backed configuration ─────────────────────────────────────────
-  installSettingsSection(ctx, NS, Config, config, {
+  // Compat shim: dsh-settings 0.1.2-rc.1 removed the module-level
+  // `installSettingsSection` export (the provider now lives at ctx.settings).
+  // This inlines the same logic via ctx.inject(["settings"]), which works on
+  // both 0.1.1 (module export wrapper) and 0.1.2 (ctx.settings) hosts.
+  const installSettingsSectionCompat = (ns, schema, entry, hooks) => {
+    ctx.inject(["settings"], (sctx) => {
+      const scope = sctx.settings.register(ns, schema, { base: entry });
+      hooks.setSource(() => scope.get());
+      sctx.effect(() => () => {
+        hooks.setSource(() => entry);
+        hooks.onChange();
+      });
+      hooks.onChange();
+      scope.watch(() => {
+        hooks.onChange();
+      });
+    });
+  };
+  installSettingsSectionCompat(NS, Config, config, {
     setSource: (getter) => {
       sourceGetter = getter;
     },
