@@ -164,7 +164,11 @@ window.__ModuleLoader__.load({
         var alive = true;
         var sync = function () { if (alive) setSnapshot(scope.getSnapshot()); };
         var un = typeof scope.subscribe === "function" ? scope.subscribe(sync) : null;
-        return function () { alive = false; if (un) un(); if (scope.dispose) scope.dispose(); };
+        // The settings scope is bound once for this plugin and shared across
+        // every mount of the section. Unmounting must only unsubscribe — never
+        // dispose the scope, or a later remount finds a `disposed` scope whose
+        // write queue no-ops, silently dropping saves.
+        return function () { alive = false; if (un) un(); };
       }, [scope]);
 
       if (snapshot.status === "unavailable") {
@@ -396,7 +400,11 @@ window.__ModuleLoader__.load({
         var alive = true;
         var sync = function () { if (alive) setSnapshot(scope.getSnapshot()); };
         var un = typeof scope.subscribe === "function" ? scope.subscribe(sync) : null;
-        return function () { alive = false; if (un) un(); if (scope.dispose) scope.dispose(); };
+        // The settings scope is bound once for this plugin and shared across
+        // every mount of the section. Unmounting must only unsubscribe — never
+        // dispose the scope, or a later remount finds a `disposed` scope whose
+        // write queue no-ops, silently dropping saves.
+        return function () { alive = false; if (un) un(); };
       }, [scope]);
       var ready = snapshot.status === "ready" && snapshot.value !== void 0;
       if (!ready || !sessionId) return null;
