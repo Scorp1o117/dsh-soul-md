@@ -56,6 +56,56 @@ window.__ModuleLoader__.load({
     // ── locale ────────────────────────────────────────────────────────────
     var NS = "soulMd";
     var inject = ["slots", "locale", "settingsScope"];
+
+    /**
+     * Whether a namespace section now reflects every queued operation.
+     *
+     * A settled write says nothing about whether it was APPLIED: the scope
+     * contract is "settle after the write and any recovery read", so a write the
+     * Host refused with settings/conflict still resolves. Inspecting the section
+     * afterwards is the only way to tell a committed change from a refused one.
+     */
+    function settingsOpsApplied(snapshot, ops) {
+      if (!snapshot || snapshot.status !== "ready" || snapshot.value === void 0) return false;
+      var user = snapshot.user && typeof snapshot.user === "object" ? snapshot.user : {};
+      for (var i = 0; i < ops.length; i++) {
+        var op = ops[i];
+        var key = op.path[0];
+        if (op.op === "unset") {
+          if (key in user) return false;
+        } else if (JSON.stringify(snapshot.value[key]) !== JSON.stringify(op.value)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    /**
+     * Apply one batch of namespace operations; resolves whether it took effect.
+     *
+     * One mutate() carries one revision fence and one persistence decision for
+     * the whole batch. Issuing the same changes as separate set()/unset() calls
+     * gives each its own fence, and a fence behind the Host document is refused —
+     * so an edit could be rejected while the UI still reported success. Hosts
+     * without mutate() apply the operations in order, each waiting for its
+     * predecessor, which keeps the revision chain intact; never in parallel.
+     */
+    function commitSettingsOps(scope, ops) {
+      if (ops.length === 0) return Promise.resolve(true);
+      var run;
+      if (typeof scope.mutate === "function") {
+        run = scope.mutate(ops, scope.getSnapshot().revision);
+      } else {
+        run = ops.reduce(function (chain, op) {
+          return chain.then(function () {
+            return op.op === "unset" ? scope.unset(op.path[0]) : scope.set(op.path[0], op.value);
+          });
+        }, Promise.resolve());
+      }
+      return Promise.resolve(run).then(function () {
+        return settingsOpsApplied(scope.getSnapshot(), ops);
+      });
+    }
     var zh = {
       nav: "人设卡",
       intro: "输入人设卡名称和内容，保存后插件自动管理——文件路径、记忆存放都不用管。人设按 会话选择 → 默认卡 解析，聊天框标题栏可随时切换。",
@@ -79,6 +129,7 @@ window.__ModuleLoader__.load({
       saved: "已保存",
       saving: "保存中…",
       error: "操作失败",
+      notApplied: "写入未生效（可能与他人同时修改冲突），已重新载入",
       unavailable: "设置命名空间不可用（服务端未注册 soul-md 命名空间？）",
       loading: "加载中…",
       memoryTitle: "长期记忆（插件托管）",
@@ -121,6 +172,7 @@ window.__ModuleLoader__.load({
       saved: "Saved",
       saving: "Saving…",
       error: "Operation failed",
+      notApplied: "Write did not take effect (possibly a concurrent-edit conflict); the form was reloaded",
       unavailable: "Settings namespace unavailable (soul-md namespace not registered server-side?)",
       loading: "Loading…",
       memoryTitle: "Long-term memory (plugin-managed)",
@@ -160,7 +212,10 @@ window.__ModuleLoader__.load({
       var [error, setError] = react.useState(null);
 
       react.useEffect(function () {
-        if (typeof scope.load === "function") scope.load();
+        // No refresh call here: the scope's public seam has no load(). Reads ride
+        // the shared describe mirror, which re-reads on every Host
+        // `settings/document-updated`; a guarded scope.load() was dead code that
+        // only looked like a refresh.
         var alive = true;
         var sync = function () { if (alive) setSnapshot(scope.getSnapshot()); };
         var un = typeof scope.subscribe === "function" ? scope.subscribe(sync) : null;
@@ -183,35 +238,47 @@ window.__ModuleLoader__.load({
       var wsList = Array.isArray(value.workspaceList) ? value.workspaceList : [];
       var wsMap = value.workspaces && typeof value.workspaces === "object" ? value.workspaces : {};
 
-      function onWsChange(path, v) {
-        var next = Object.assign({}, wsMap);
-        if (v === "") delete next[path];
-        else next[path] = v;
+      function setNotice0() { setNotice(null); setError(null); }
+
+      /**
+       * One write path for every field of this section.
+       *
+       * Reports success only when the namespace section confirms the change, so a
+       * refused write can no longer masquerade as "saved"; on failure the form is
+       * reloaded from whatever the Host actually holds.
+       */
+      function runWrite(ops, onOk) {
         setBusy(true); setNotice0();
-        scope.set("workspaces", next).then(function () {
-          setBusy(false); setNotice(t("saved"));
-          if (typeof scope.load === "function") scope.load();
+        commitSettingsOps(scope, ops).then(function (ok) {
+          setBusy(false);
+          if (!ok) {
+            setError(t("error") + "：" + t("notApplied"));
+            setCardDraft(function () { return {}; });
+            return;
+          }
+          setNotice(t("saved"));
+          if (onOk) onOk();
         }).catch(function (e) {
           setBusy(false); setError(t("error") + ": " + String(e && e.message || e));
         });
       }
 
-      function setNotice0() { setNotice(null); setError(null); }
+      function onWsChange(path, v) {
+        var next = Object.assign({}, wsMap);
+        if (v === "") delete next[path];
+        else next[path] = v;
+        runWrite([{ op: "set", path: ["workspaces"], value: next }]);
+      }
 
       function onSaveCard() {
         var name = String(cardDraft.name || "").trim();
         var content = String(cardDraft.content || "");
         if (!name) { setError(t("error") + ": name"); return; }
         if (!content.trim()) { setError(t("error") + ": content"); return; }
-        setBusy(true); setNotice0();
         var next = Object.assign({}, cards);
         next[name] = content;
-        scope.set("cards", next).then(function () {
-          setBusy(false); setNotice(t("saved"));
+        runWrite([{ op: "set", path: ["cards"], value: next }], function () {
           setCardDraft({ name: "", content: "" });
-          if (typeof scope.load === "function") scope.load();
-        }).catch(function (e) {
-          setBusy(false); setError(t("error") + ": " + String(e && e.message || e));
         });
       }
 
@@ -222,27 +289,19 @@ window.__ModuleLoader__.load({
 
       function onDeleteCard(name) {
         if (!window.confirm("Delete persona card \"" + name + "\"?")) return;
-        setBusy(true); setNotice0();
         var next = Object.assign({}, cards);
         delete next[name];
-        var p1 = scope.set("cards", next);
-        var p2 = name === active ? scope.unset("active") : Promise.resolve();
-        Promise.all([p1, p2]).then(function () {
-          setBusy(false); setNotice(t("saved"));
-          if (typeof scope.load === "function") scope.load();
-        }).catch(function (e) {
-          setBusy(false); setError(t("error") + ": " + String(e && e.message || e));
-        });
+        // Deleting the active card also clears `active`. Both edits go in ONE
+        // batch: as two independent writes each carried its own revision fence
+        // and the second could be refused for a revision the first had just
+        // superseded.
+        var ops = [{ op: "set", path: ["cards"], value: next }];
+        if (name === active) ops.push({ op: "unset", path: ["active"] });
+        runWrite(ops);
       }
 
       function onSetActive(name) {
-        setBusy(true); setNotice0();
-        scope.set("active", name).then(function () {
-          setBusy(false); setNotice(t("saved"));
-          if (typeof scope.load === "function") scope.load();
-        }).catch(function (e) {
-          setBusy(false); setError(t("error") + ": " + String(e && e.message || e));
-        });
+        runWrite([{ op: "set", path: ["active"], value: name }]);
       }
 
       function memDraftValue(f) {
@@ -271,18 +330,13 @@ window.__ModuleLoader__.load({
         return out;
       }
       function onSaveMemory() {
-        setBusy(true); setNotice0();
         var next = memNext();
         var base = memBase();
-        var p = JSON.stringify(next) === JSON.stringify(base)
-          ? Promise.resolve()
-          : scope.set("memory", next);
-        p.then(function () {
+        if (JSON.stringify(next) === JSON.stringify(base)) {
           setBusy(false); setNotice(t("saved"));
-          if (typeof scope.load === "function") scope.load();
-        }).catch(function (e) {
-          setBusy(false); setError(t("error") + ": " + String(e && e.message || e));
-        });
+          return;
+        }
+        runWrite([{ op: "set", path: ["memory"], value: next }]);
       }
 
       return h("div", { className: "__sm_root" },
@@ -315,7 +369,7 @@ window.__ModuleLoader__.load({
           h("label", { className: "__sm_field" },
             h("span", { className: "__sm_label" }, t("defaultBadge")),
             h("span", { className: "__sm_hint" }, t("activeHint")),
-            h("select", { className: "__sm_input", value: active || "", onChange: function (e) { var v = e.target.value; if (!v) scope.unset("active"); else onSetActive(v); } },
+            h("select", { className: "__sm_input", value: active || "", onChange: function (e) { var v = e.target.value; if (!v) runWrite([{ op: "unset", path: ["active"] }]); else onSetActive(v); } },
               h("option", { value: "" }, t("noneOption")),
               cardNames.map(function (n) { return h("option", { key: n, value: n }, n); })
             )
@@ -396,7 +450,10 @@ window.__ModuleLoader__.load({
       var sessionId = props.sessionId;
       var [snapshot, setSnapshot] = react.useState(function () { return scope.getSnapshot(); });
       react.useEffect(function () {
-        if (typeof scope.load === "function") scope.load();
+        // No refresh call here: the scope's public seam has no load(). Reads ride
+        // the shared describe mirror, which re-reads on every Host
+        // `settings/document-updated`; a guarded scope.load() was dead code that
+        // only looked like a refresh.
         var alive = true;
         var sync = function () { if (alive) setSnapshot(scope.getSnapshot()); };
         var un = typeof scope.subscribe === "function" ? scope.subscribe(sync) : null;
@@ -419,9 +476,7 @@ window.__ModuleLoader__.load({
         var next = Object.assign({}, sessions);
         if (v === "") delete next[sessionId];
         else next[sessionId] = v;
-        scope.set("sessions", next).then(function () {
-          if (typeof scope.load === "function") scope.load();
-        }).catch(function () {});
+        commitSettingsOps(scope, [{ op: "set", path: ["sessions"], value: next }]).catch(function () {});
       }
       return h("label", { className: "__sm_switch", title: t("switchTitle") },
         h("span", { className: "__sm_switchLabel" }, t("switchLabel")),
@@ -439,8 +494,13 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       var t = ctx.locale.bind(NS);
       ctx.effect(function () { return ctx.locale.register(NS, { zh: zh, en: en }); }, "dsh-soul-md: dictionaries");
-      var sectionScope = ctx.settingsScope.bind({ namespace: "soul-md" });
-      var switchScope = ctx.settingsScope.bind({ namespace: "soul-md" });
+      // ONE scope for the namespace, shared by this section and the conversation
+      // header switcher. Two binds would each keep their own revision
+      // bookkeeping (`pendingRevision`, write queue) over one Host document, so a
+      // write from the header and one from this section could each fence against
+      // a revision the other had already superseded — the Host refuses the stale
+      // write and the scope still settles it as success.
+      var scope = ctx.settingsScope.bind({ namespace: "soul-md" });
       ctx.slots.inject("settings.section", function () {
         return ctx.slots.register({
           name: "settings.section",
@@ -449,7 +509,7 @@ window.__ModuleLoader__.load({
           label: function () { return t("nav"); },
           locale: NS
         }, function (props) {
-          return h(SoulSection, Object.assign({}, props, { scope: sectionScope }));
+          return h(SoulSection, Object.assign({}, props, { scope: scope }));
         });
       });
       ctx.slots.inject("conversation.session.header.actions", function () {
@@ -458,7 +518,7 @@ window.__ModuleLoader__.load({
           id: "soul-md-persona",
           order: 40
         }, function (props) {
-          return h(PersonaSwitcher, Object.assign({}, props, { scope: switchScope, t: t }));
+          return h(PersonaSwitcher, Object.assign({}, props, { scope: scope, t: t }));
         });
       });
     }

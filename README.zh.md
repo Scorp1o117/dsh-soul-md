@@ -53,6 +53,26 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 | `memory.order` | `0.5` | 注入的记忆段落顺序 |
 | legacy 字段 | — | `path`、`fallback`、`order`、`complete`、`watch`、`debounceMs`、`soulMaxBytes`、`personas`、`roster`、`memory.path`… 保留以兼容旧配置，仅用于一次性导入 |
 
+## v0.6.2：写入改为原子提交并校验
+
+此前所有保存都以单独一次 `scope.set()/unset()` 提交，写完只管弹「已保存」，从不确认是否真的生效。
+问题在于 scope 的契约是「完成写入与恢复读取后结算」，**不是**「被拒就抛错」——被宿主以
+`settings/conflict` 拒绝的写入同样会 resolve，于是界面显示成功而值静默回退。
+
+具体修掉三处：
+
+- **同一个命名空间被绑了两个 scope**（设置栏一个、聊天框标题栏的人设切换器一个）。每个 scope 各自维护
+  `pendingRevision` 与写入队列，于是两边可能各自按一个已被对方超越的 revision 去写入 —— 宿主要么拒绝，
+  要么接受后立刻被后来者覆盖。现在合并为**一个共享 scope**（scope 本就是设计成跨挂载点共享的）。
+- **删除人设卡时并行写入**：`Promise.all([set("cards"), unset("active")])`。两处修改现在放进**同一次
+  `mutate()`**，共用一个 revision 栅栏。
+- **写完不校验**：现在写入结算后回读命名空间 section，只有确认生效才报「已保存」，否则提示
+  「写入未生效」并重新载入表单。「不启用」选项也从直接 `scope.unset` 改走同一条校验路径。
+
+另外删掉了 6 处 `if (typeof scope.load === "function") scope.load()`。`SettingsScope` 接口从来没有
+`load()`（读走的是共享的 describe 镜像，由宿主 `settings/document-updated` 驱动刷新），这些守卫是照
+臆测 API 写的死代码，只会让人误以为"已经刷新过了"。
+
 ## 注意事项
 
 - **不要在人设文本里写 `{{` / `}}`**：它们是提示词变量语法，未知变量会在渲染时报错（目前没有转义语法）。
