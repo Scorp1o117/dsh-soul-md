@@ -20,7 +20,8 @@ Persona + long-term memory for [DeepSeek Harness](https://github.com/deepseek-ai
 - **Long-term memory** — the agent gets five tools:
   - `memory_append` / `memory_read` / `memory_rewrite` — a persistent memory
     file (Agent.md / memory.md style). The active persona card has its own
-    memory; otherwise the global memory is used.
+    memory; otherwise the global memory is used. In layered mode, their optional
+    `topic` argument reads or writes one on-demand topic.
   - `soul_read` / `soul_update` — the AI reads and **evolves its own persona
     card**: when it notices a stable trait, preference, or value of its own,
     it folds it into the card. It "grows" across sessions instead of
@@ -49,6 +50,11 @@ Then restart `dsh web` and open **Settings → 人设卡**: type a name + conten
   as `cards: { name -> markdown }` + `active` + per-session `sessions`.
 - Memory files: plugin-managed under `$DSH_HOME/soul-md/memory/`
   (`global.md` + one file per card), created on demand.
+- Optional layered memory (off by default): `memory/<card>/core.md` is injected
+  in full, while `memory/<card>/topics/*.md` contributes only its title and first
+  body line to an index. `memory_read({ topic: "..." })` retrieves a topic's full
+  text. Existing `<card>.md` files remain readable and seed `core.md` on the first
+  layered append, so enabling the option does not hide old memory.
 - Upgrading from ≤ v0.4 (file-based)? The plugin **auto-imports** the old
   `path` card (as "默认") and the old memory file on first run.
 
@@ -63,9 +69,14 @@ Then restart `dsh web` and open **Settings → 人设卡**: type a name + conten
 | `workspaceList` | `[]` | Read-only workspace list (path + title), maintained by the host from dsh's workspace registry. |
 | `memory.maxBytes` | `1048576` | `memory_append` / `memory_rewrite` refuse to exceed this size. |
 | `memory.inject` | `true` | Render the memory as the `soul:memory` prompt section. |
+| `memory.layered` | `false` | Enable progressive disclosure: full core plus a topics index. |
 | `memory.injectMaxChars` | `8000` | Cap for the injected section (from the file head). |
 | `memory.order` | `0.5` | Prompt section order for the injected memory section. |
 | legacy fields | — | `path`, `fallback`, `order`, `complete`, `watch`, `debounceMs`, `soulMaxBytes`, `personas`, `roster`, `memory.path`… kept so old composition entries and settings still validate; only used for the one-time import. |
+
+Compatibility: automated tests run against the host packages shipped with
+`@deepseek-ai/dsh@0.1.5-rc.2` (the current npm `latest`). `0.1.6-alpha.1` and
+`.2` are explicitly recorded as `unknown`, not claimed as supported.
 
 ## Notes
 

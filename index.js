@@ -30,12 +30,13 @@
  * validating; on first run the plugin imports the old `path` card and the
  * old memory file into the managed store.
  */
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync, watch } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join, dirname } from "node:path";
 import z from "@deepseek-ai/schemastery";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { createMemoryLayout } from "./memory-layout.js";
 
 /** Cordis plugin name. */
 const name = "soul-md";
@@ -77,6 +78,8 @@ const Config = z.object({
     maxBytes: z.number().default(1024 * 1024),
     /** Also render the memory file as a `soul:memory` system-prompt section. */
     inject: z.boolean().default(true),
+    /** Opt-in progressive disclosure: core.md is injected; topics/*.md become an index. */
+    layered: z.boolean().default(false),
     /** Cap for the injected memory section (chars, from the file head). */
     injectMaxChars: z.number().default(8000),
     /** Prompt section order for the injected memory section. */
@@ -178,32 +181,28 @@ function apply(ctx, config) {
   /** Managed memory directory (created on demand). */
   const memoryDir = () => join(resolveDshHome(), MEMORY_DIR);
 
-  /** Filename-safe card key; keeps card names stable for the managed files. */
-  const safeName = (cardName) => String(cardName).replace(/[\\/:*?"<>|]/g, "_").slice(0, 64) || "card";
+  const memoryLayout = createMemoryLayout(memoryDir, readCached);
 
-  const memoryFileFor = (cardName) =>
-    cardName ? join(memoryDir(), `${safeName(cardName)}.md`) : join(memoryDir(), "global.md");
+  const memoryScopes = (agent) => {
+    const cardName = cardNameOf(agent);
+    return cardName ? [cardName, "global"] : ["global"];
+  };
 
   /** The memory scope ACTIVE for one agent (write target): card memory > global. */
-  const memoryTarget = (agent) => {
+  const memoryTarget = (agent, topic = "") => {
     const cardName = cardNameOf(agent);
-    return cardName
-      ? { file: memoryFileFor(cardName), scope: cardName }
-      : { file: memoryFileFor(null), scope: "global" };
+    const scope = cardName ?? "global";
+    return {
+      ...memoryLayout.writeTarget(scope, { layered: Boolean(cfg().memory?.layered), topic }),
+      scope,
+    };
   };
 
   /** First EXISTING memory along the chain (read/inject path). */
-  const memoryReadChain = (agent) => {
-    const target = memoryTarget(agent);
-    const scopeText = readCached(target.file);
-    if (scopeText !== null) return { text: scopeText, source: target.scope, file: target.file };
-    if (target.scope !== "global") {
-      const globalFile = memoryFileFor(null);
-      const globalText = readCached(globalFile);
-      if (globalText !== null) return { text: globalText, source: "global", file: globalFile };
-    }
-    return { text: "", source: target.scope, file: target.file };
-  };
+  const memoryReadChain = (agent, topic = "") => memoryLayout.readChain(memoryScopes(agent), {
+    layered: Boolean(cfg().memory?.layered),
+    topic,
+  });
 
   /** Render the persona section for one assembly. */
   const renderPersona = (assembly) => resolveCard(assembly?.agent).text ?? "";
@@ -212,10 +211,11 @@ function apply(ctx, config) {
   const renderMemory = (assembly) => {
     const c = cfg();
     if (!c.memory?.inject) return "";
-    const { text } = memoryReadChain(assembly?.agent);
-    if (!text) return "";
+    const { text, index } = memoryReadChain(assembly?.agent);
+    const rendered = [text, index].filter(Boolean).join("\n\n");
+    if (!rendered) return "";
     const cap = Math.max(0, Math.floor(c.memory.injectMaxChars ?? 8000));
-    let out = text;
+    let out = rendered;
     if (out.length > cap) {
       out = out.slice(0, cap) + "\n\n> 记忆超出注入上限，可用 memory_read 读取全文 / memory exceeds the inject cap — use memory_read for the full text.";
     }
@@ -329,7 +329,7 @@ function apply(ctx, config) {
           ctx.logger.info("[soul-md] imported legacy persona card as 默认");
         }
       }
-      const managedGlobal = memoryFileFor(null);
+      const managedGlobal = memoryLayout.legacyFile("global");
       if (readCached(managedGlobal) === null) {
         const legacyMem = legacyMemoryFileOf();
         if (legacyMem) {
@@ -452,7 +452,7 @@ function apply(ctx, config) {
 
   // ── persona + memory tools (the "growth" loop) ────────────────────────────
   const ensureParent = async (file) => {
-    await mkdir(join(file, ".."), { recursive: true });
+    await mkdir(dirname(file), { recursive: true });
   };
   const byteLen = (text) => Buffer.byteLength(text, "utf8");
   const agentOf = (exec) => exec?.agent ?? null;
@@ -460,10 +460,11 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "memory_append",
     description:
-      "Append a dated Markdown block to your long-term memory. The target follows your CURRENT scope: the memory of the persona card active for this session, else the global memory. Use it PROACTIVELY whenever you learn something worth keeping across sessions: user preferences and facts, decisions and their reasons, recurring patterns, project state, promises you made. Writing it down is what makes you grow instead of resetting every session. Prefer small, self-contained entries over one giant dump.",
+      "Append a dated Markdown block to your long-term memory. The target follows your CURRENT scope: the memory of the persona card active for this session, else the global memory. In layered mode, omit topic for always-visible core memory or pass a stable topic key for an on-demand topic file. Use it PROACTIVELY whenever you learn something worth keeping across sessions. Prefer small, self-contained entries over one giant dump.",
     parameters: {
       section: { type: "string", required: true, description: "Short heading for the entry, e.g. 用户偏好 / project decision. Use a stable name so related entries group together." },
       content: { type: "string", required: true, description: "The markdown text to remember. Keep it concise and self-contained." },
+      topic: { type: "string", description: "Optional topic key in layered mode. Omit for core.md; e.g. project-foo writes topics/project-foo.md." },
     },
     output: {
       schema: {
@@ -473,29 +474,37 @@ function apply(ctx, config) {
           bytes: { type: "integer" },
           totalBytes: { type: "integer" },
           scope: { type: "string" },
+          topic: { type: "string" },
         },
       },
-      render: (_args, value) => [{ type: "text", text: `Appended to memory (${value.bytes} bytes, ${value.totalBytes} total) in scope "${value.scope}".` }],
+      render: (_args, value) => [{ type: "text", text: `Appended to memory (${value.bytes} bytes, ${value.totalBytes} total) in scope "${value.scope}"${value.topic ? ` topic "${value.topic}"` : ""}.` }],
     },
     isConcurrencySafe: () => false,
     async execute(args, exec) {
       const content = String(args.content ?? "").trim();
       if (!content) throw new Error("memory_append: `content` must be non-empty");
       const section = String(args.section ?? "").trim();
+      const topic = String(args.topic ?? "").trim();
+      if (topic && !cfg().memory?.layered) {
+        throw new Error("memory_append: `topic` requires memory.layered to be enabled");
+      }
       const d = new Date();
       const pad = (n) => String(n).padStart(2, "0");
       const heading = `## ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}${section ? ` — ${section}` : ""}`;
       const block = `\n${heading}\n\n${content}\n`;
-      const target = memoryTarget(agentOf(exec));
-      const existing = readCached(target.file) ?? "";
+      const target = memoryTarget(agentOf(exec), topic);
+      const current = readCached(target.file);
+      const inherited = current === null && target.legacySeed ? readCached(target.legacySeed) : null;
+      const existing = current ?? inherited ?? "";
       const totalBytes = byteLen(existing + block);
       if (totalBytes > (cfg().memory?.maxBytes ?? 1024 * 1024)) {
         throw new Error(`memory_append: memory file would exceed maxBytes (${cfg().memory.maxBytes}); consolidate with memory_rewrite first`);
       }
       await ensureParent(target.file);
-      await appendFile(target.file, block, "utf8");
+      if (current === null && inherited !== null) await writeFile(target.file, existing + block, "utf8");
+      else await appendFile(target.file, block, "utf8");
       fileCache.delete(target.file);
-      return { bytes: byteLen(block), totalBytes, scope: target.scope };
+      return { bytes: byteLen(block), totalBytes, scope: target.scope, topic: target.topic };
     },
     presentCall: (args) => ({ card: "generic", title: "Append to memory", kind: "other", rawInput: args }),
   }));
@@ -503,8 +512,10 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "memory_read",
     description:
-      "Read your long-term memory back. The reader walks your CURRENT scope chain and returns the first existing file: the active persona card's memory, else the global memory. Use it at the start of important tasks and whenever a decision might depend on what you learned or stored before — it is your continuity across sessions.",
-    parameters: {},
+      "Read your long-term memory back. The reader walks your CURRENT scope chain: the active persona card's memory, else global memory. In layered mode, omit topic to read core memory plus the topic index, then pass a topic key to retrieve that topic's full text on demand.",
+    parameters: {
+      topic: { type: "string", description: "Optional topic key to read in layered mode. Omit to read core memory plus the topic index." },
+    },
     output: {
       schema: {
         type: "object",
@@ -514,28 +525,35 @@ function apply(ctx, config) {
           bytes: { type: "integer" },
           truncated: { type: "boolean" },
           source: { type: "string" },
+          topic: { type: "string" },
           content: { type: "string" },
         },
       },
       render: (_args, value) => [{
         type: "text",
         text: value.exists
-          ? `Memory from "${value.source}" (${value.bytes} bytes${value.truncated ? ", truncated" : ""}):\n${value.content}`
+          ? `Memory from "${value.source}"${value.topic ? ` topic "${value.topic}"` : ""} (${value.bytes} bytes${value.truncated ? ", truncated" : ""}):\n${value.content}`
           : `Memory is empty or missing (scope: "${value.source}").`,
       }],
     },
     isConcurrencySafe: () => true,
-    async execute(_args, exec) {
-      const { text, source } = memoryReadChain(agentOf(exec));
-      if (!text) return { exists: false, bytes: 0, truncated: false, source, content: "" };
+    async execute(args, exec) {
+      const topic = String(args.topic ?? "").trim();
+      if (topic && !cfg().memory?.layered) {
+        throw new Error("memory_read: `topic` requires memory.layered to be enabled");
+      }
+      const { exists, text, index, source, topic: resolvedTopic = "" } = memoryReadChain(agentOf(exec), topic);
+      const full = [text, index].filter(Boolean).join("\n\n");
+      if (!exists || !full) return { exists: false, bytes: 0, truncated: false, source, topic: resolvedTopic, content: "" };
       const MAX = 20000;
-      const truncated = text.length > MAX;
+      const truncated = full.length > MAX;
       return {
         exists: true,
-        bytes: byteLen(text),
+        bytes: byteLen(full),
         truncated,
         source,
-        content: truncated ? `${text.slice(0, MAX)}\n…(truncated; the file is larger)…` : text,
+        topic: resolvedTopic,
+        content: truncated ? `${full.slice(0, MAX)}\n…(truncated; the memory is larger)…` : full,
       };
     },
   }));
@@ -543,9 +561,10 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "memory_rewrite",
     description:
-      "REPLACE the entire memory file of your CURRENT scope (active persona card's memory, else the global memory — same rule as memory_append) with new content. Use for consolidation: merge, deduplicate and reorganize entries when the file grows unwieldy, or restructure it by topic. Build the new content from memory_read output unless you deliberately drop entries. Pass an empty string to clear the memory file.",
+      "REPLACE one memory file in your CURRENT scope. In layered mode, omit topic for always-visible core.md or pass a topic key for topics/<topic>.md. Use for consolidation: merge, deduplicate and reorganize entries. Build the new content from memory_read output unless you deliberately drop entries. Pass an empty string to clear the selected file.",
     parameters: {
       content: { type: "string", required: true, description: "The new full content of the memory file (markdown)." },
+      topic: { type: "string", description: "Optional topic key in layered mode. Omit to replace core.md." },
     },
     output: {
       schema: {
@@ -554,22 +573,27 @@ function apply(ctx, config) {
         properties: {
           bytes: { type: "integer" },
           scope: { type: "string" },
+          topic: { type: "string" },
         },
       },
-      render: (_args, value) => [{ type: "text", text: `Memory rewritten (${value.bytes} bytes) in scope "${value.scope}".` }],
+      render: (_args, value) => [{ type: "text", text: `Memory rewritten (${value.bytes} bytes) in scope "${value.scope}"${value.topic ? ` topic "${value.topic}"` : ""}.` }],
     },
     isConcurrencySafe: () => false,
     async execute(args, exec) {
       const content = String(args.content ?? "");
+      const topic = String(args.topic ?? "").trim();
+      if (topic && !cfg().memory?.layered) {
+        throw new Error("memory_rewrite: `topic` requires memory.layered to be enabled");
+      }
       const bytes = byteLen(content);
       if (bytes > (cfg().memory?.maxBytes ?? 1024 * 1024)) {
         throw new Error(`memory_rewrite: content exceeds maxBytes (${cfg().memory.maxBytes})`);
       }
-      const target = memoryTarget(agentOf(exec));
+      const target = memoryTarget(agentOf(exec), topic);
       await ensureParent(target.file);
       await writeFile(target.file, content, "utf8");
       fileCache.delete(target.file);
-      return { bytes, scope: target.scope };
+      return { bytes, scope: target.scope, topic: target.topic };
     },
   }));
 

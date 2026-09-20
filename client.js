@@ -135,6 +135,7 @@ window.__ModuleLoader__.load({
       memoryTitle: "长期记忆（插件托管）",
       memoryIntro: "AI 用 memory_append / memory_read / memory_rewrite 读写记忆：当前人设卡有自己的记忆，没选卡时用全局记忆。记忆文件由插件自动管理。",
       memoryInjectHint: "把记忆渲染为 soul:memory 提示词段落（AI 可随时读到记忆）。",
+      memoryLayeredHint: "默认关闭。开启后 core.md 全文参与注入，topics/*.md 只注入标题和一行摘要；AI 可用 memory_read(topic) 按需读取全文。",
       memoryMaxCharsHint: "注入段落的字符上限（超出的部分用 memory_read 读取全文）。",
       memoryMaxBytesHint: "单份记忆文件大小上限。",
       switchLabel: "人设",
@@ -145,6 +146,7 @@ window.__ModuleLoader__.load({
       wsEmpty: "还没有工作区记录——在会话页新建/选择一个工作区后，这里会出现它的设置。",
       wsName: "工作区",
       fieldMemoryInject: "注入为 soul:memory 提示词段落",
+      fieldMemoryLayered: "启用分层记忆（core + topics 索引）",
       fieldMemoryInjectMaxChars: "注入字符上限",
       fieldMemoryMaxBytes: "记忆文件大小上限",
       cardNamePlaceholder: "希希芙"
@@ -178,6 +180,7 @@ window.__ModuleLoader__.load({
       memoryTitle: "Long-term memory (plugin-managed)",
       memoryIntro: "The AI reads/writes memory with memory_append / memory_read / memory_rewrite: the active persona card has its own memory, otherwise the global memory is used. Files are managed by the plugin.",
       memoryInjectHint: "Also render the memory as the soul:memory prompt section (the agent always sees its memory).",
+      memoryLayeredHint: "Off by default. When enabled, core.md is injected in full while topics/*.md contributes only a title and one-line summary; memory_read(topic) retrieves full topic text on demand.",
       memoryMaxCharsHint: "Cap for the injected section (chars); use memory_read for the full text.",
       memoryMaxBytesHint: "Max size of one memory file.",
       switchLabel: "Persona",
@@ -188,6 +191,7 @@ window.__ModuleLoader__.load({
       wsEmpty: "No workspace records yet — create/select a workspace in the session page and its setting appears here.",
       wsName: "Workspace",
       fieldMemoryInject: "Inject as soul:memory prompt section",
+      fieldMemoryLayered: "Enable layered memory (core + topic index)",
       fieldMemoryInjectMaxChars: "Inject char cap",
       fieldMemoryMaxBytes: "Memory file size cap",
       cardNamePlaceholder: "Xixifu"
@@ -195,10 +199,11 @@ window.__ModuleLoader__.load({
 
     var MEMORY_FIELDS = [
       { key: "inject", label: "fieldMemoryInject", type: "checkbox", hint: "memoryInjectHint" },
+      { key: "layered", label: "fieldMemoryLayered", type: "checkbox", hint: "memoryLayeredHint" },
       { key: "injectMaxChars", label: "fieldMemoryInjectMaxChars", type: "number", hint: "memoryMaxCharsHint" },
       { key: "maxBytes", label: "fieldMemoryMaxBytes", type: "number", hint: "memoryMaxBytesHint" }
     ];
-    var MEMORY_DEFAULTS = { inject: true, injectMaxChars: 8000, maxBytes: 1048576 };
+    var MEMORY_DEFAULTS = { inject: true, layered: false, injectMaxChars: 8000, maxBytes: 1048576 };
 
     function SoulSection(props) {
       var t = props.t;

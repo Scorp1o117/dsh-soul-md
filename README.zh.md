@@ -14,7 +14,7 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 
 - **人设卡**：卡片内容渲染成系统提示词段落（`soul:persona`）。支持多张卡：设置一张默认卡，聊天框标题栏的「人设」下拉可以给每个会话单独选卡
 - **长期记忆**：Agent 自带五个工具——
-  - `memory_append` / `memory_read` / `memory_rewrite`：持久记忆文件（Agent.md / memory.md 风格）。当前人设卡有自己的记忆，没选卡时用全局记忆
+  - `memory_append` / `memory_read` / `memory_rewrite`：持久记忆文件（Agent.md / memory.md 风格）。当前人设卡有自己的记忆，没选卡时用全局记忆；分层模式下可用可选的 `topic` 参数按主题读写
   - `soul_read` / `soul_update`：AI 自己读、自己**演化人设卡**——发现自己的稳定特质就折叠进卡片，跨会话**持续成长**而不是每次重置
   - 记忆会以 `soul:memory` 段落注入提示词（有上限），AI 随时看得见自己的记忆
 - **解析规则**：`会话选择（聊天框切换）> 工作区人设 > 默认卡 > 无`，切换下一轮对话即生效，无需重启
@@ -36,6 +36,7 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 
 - 人设卡：存在 `soul-md` 设置命名空间里（`settings.yaml`），即 `cards: { 名称 -> 内容 }` + `active` 默认卡 + 会话级 `sessions`
 - 记忆文件：插件托管在 `$DSH_HOME/soul-md/memory/`（`global.md` + 每张卡一个文件），按需自动创建
+- 可选分层记忆（默认关闭）：`memory/<卡名>/core.md` 全文注入，`memory/<卡名>/topics/*.md` 只把标题和首个正文行注入为索引；`memory_read({ topic: "..." })` 按需取回主题全文。开启后若尚未建立目录结构，会继续读取旧的 `<卡名>.md`，首次追加 core 时也会保留旧内容
 - 从 ≤ v0.4 的文件版升级？插件首次运行会**自动导入**旧 `path` 卡片（名为「默认」）和旧记忆文件
 
 ## 配置
@@ -49,9 +50,12 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 | `workspaceList` | `[]` | 工作区列表（路径 + 标题），由服务端从 dsh 工作区注册表维护 |
 | `memory.maxBytes` | `1048576` | `memory_append` / `memory_rewrite` 超过此大小会拒绝 |
 | `memory.inject` | `true` | 把记忆渲染为 `soul:memory` 提示词段落 |
+| `memory.layered` | `false` | 启用渐进式分层记忆：core 全文 + topics 索引 |
 | `memory.injectMaxChars` | `8000` | 注入段落字符上限（从文件头截取） |
 | `memory.order` | `0.5` | 注入的记忆段落顺序 |
 | legacy 字段 | — | `path`、`fallback`、`order`、`complete`、`watch`、`debounceMs`、`soulMaxBytes`、`personas`、`roster`、`memory.path`… 保留以兼容旧配置，仅用于一次性导入 |
+
+兼容性：已在 `@deepseek-ai/dsh@0.1.5-rc.2`（当前 npm `latest`）对应的 `dsh-home-paths`、`dsh-settings` 和 `dsh-tools` 上完成自动测试。`0.1.6-alpha.1` / `.2` 尚未验证，清单中明确标为 `unknown`，不冒充支持。
 
 ## v0.6.2：写入改为原子提交并校验
 
