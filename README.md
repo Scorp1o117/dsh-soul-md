@@ -78,6 +78,18 @@ Compatibility: automated tests run against the host packages shipped with
 `@deepseek-ai/dsh@0.1.5-rc.2` (the current npm `latest`). `0.1.6-alpha.1` and
 `.2` are explicitly recorded as `unknown`, not claimed as supported.
 
+## v0.7.0: Layered memory
+
+- Adds opt-in `memory.layered`; existing users keep the single-file behavior.
+- Injects `core.md` as resident memory and only a title/summary index for
+  `topics/*.md`.
+- Adds an optional `topic` argument to all three `memory_*` tools for on-demand
+  topic reads and writes.
+- Keeps legacy `<card>.md` visible as the core fallback and carries it into the
+  first layered append.
+- Passes disposable-profile install, Web boot, client-bundle, and uninstall
+  smoke checks on DSH `0.1.5-rc.2`.
+
 ## Notes
 
 - **Never write `{{` / `}}` in a card body** — they are prompt-variable
