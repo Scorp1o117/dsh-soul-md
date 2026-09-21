@@ -37,6 +37,7 @@ import z from "@deepseek-ai/schemastery";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { createMemoryLayout } from "./memory-layout.js";
+import { skipsSubagentSections } from "./subagents.js";
 
 /** Cordis plugin name. */
 const name = "soul-md";
@@ -96,6 +97,8 @@ const Config = z.object({
   complete: z.boolean().default(false),
   watch: z.boolean().default(true),
   debounceMs: z.number().default(300),
+  /** Skip persona + memory injection in delegated child sessions (opt-in; default keeps v0.7 behavior). */
+  skipSubagents: z.boolean().default(false),
   soulMaxBytes: z.number().default(64 * 1024),
   personas: z.object({
     dir: z.string().default(""),
@@ -205,12 +208,17 @@ function apply(ctx, config) {
   });
 
   /** Render the persona section for one assembly. */
-  const renderPersona = (assembly) => resolveCard(assembly?.agent).text ?? "";
+  const renderPersona = (assembly) => {
+    const c = cfg();
+    if (skipsSubagentSections(c, assembly?.agent)) return "";
+    return resolveCard(assembly?.agent).text ?? "";
+  };
 
   /** Render the memory section for one assembly. */
   const renderMemory = (assembly) => {
     const c = cfg();
     if (!c.memory?.inject) return "";
+    if (skipsSubagentSections(c, assembly?.agent)) return "";
     const { text, index } = memoryReadChain(assembly?.agent);
     const rendered = [text, index].filter(Boolean).join("\n\n");
     if (!rendered) return "";

@@ -72,11 +72,25 @@ Then restart `dsh web` and open **Settings → 人设卡**: type a name + conten
 | `memory.layered` | `false` | Enable progressive disclosure: full core plus a topics index. |
 | `memory.injectMaxChars` | `8000` | Cap for the injected section (from the file head). |
 | `memory.order` | `0.5` | Prompt section order for the injected memory section. |
+| `skipSubagents` | `false` | Delegated child sessions (DSH marks them `origin: "subagent"`) skip the `soul:persona` / `soul:memory` sections; tool scopes are unchanged. |
 | legacy fields | — | `path`, `fallback`, `order`, `complete`, `watch`, `debounceMs`, `soulMaxBytes`, `personas`, `roster`, `memory.path`… kept so old composition entries and settings still validate; only used for the one-time import. |
+
+`skipSubagents` is off by default and keeps the v0.7.0 behavior. When enabled,
+sessions DSH created as delegated children (`origin: "subagent"`) no longer receive the `soul:persona` / `soul:memory` sections -
+a child usually does one small job and does not need to carry the parent's full persona and long-term memory every turn.
+
+It only affects prompt injection: `cardNameOf`, `memoryTarget`, and the scope of the three `memory_*` tools are unchanged,
+so a child reads and writes exactly the same card and memory files it would otherwise (nothing silently falls back to `global.md`).
 
 Compatibility: automated tests run against the host packages shipped with
 `@deepseek-ai/dsh@0.1.5-rc.2` (the current npm `latest`). `0.1.6-alpha.1` and
 `.2` are explicitly recorded as `unknown`, not claimed as supported.
+
+## Unreleased: skip persona/memory in subagent sessions
+
+- Adds opt-in `skipSubagents`: delegated child sessions (`origin: "subagent"`) no longer receive the `soul:persona` / `soul:memory` sections.
+- Render path only; `cardNameOf`, `memoryTarget`, and the `memory_*` tool scopes are unchanged.
+- The settings page exposes the switch in the long-term memory group, saved together with `memory.inject` / `memory.layered`.
 
 ## v0.7.0: Layered memory
 

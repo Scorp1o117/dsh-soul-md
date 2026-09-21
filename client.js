@@ -136,6 +136,7 @@ window.__ModuleLoader__.load({
       memoryIntro: "AI 用 memory_append / memory_read / memory_rewrite 读写记忆：当前人设卡有自己的记忆，没选卡时用全局记忆。记忆文件由插件自动管理。",
       memoryInjectHint: "把记忆渲染为 soul:memory 提示词段落（AI 可随时读到记忆）。",
       memoryLayeredHint: "默认关闭。开启后 core.md 全文参与注入，topics/*.md 只注入标题和一行摘要；AI 可用 memory_read(topic) 按需读取全文。",
+      skipSubagentsHint: "默认关闭。开启后，DSH 以 origin: subagent 创建的委派子会话不再收到 soul:persona / soul:memory 两段提示词；子代理的工具仍使用它原本的人设卡与记忆作用域，只是不再自动注入。",
       memoryMaxCharsHint: "注入段落的字符上限（超出的部分用 memory_read 读取全文）。",
       memoryMaxBytesHint: "单份记忆文件大小上限。",
       switchLabel: "人设",
@@ -147,6 +148,7 @@ window.__ModuleLoader__.load({
       wsName: "工作区",
       fieldMemoryInject: "注入为 soul:memory 提示词段落",
       fieldMemoryLayered: "启用分层记忆（core + topics 索引）",
+      fieldSkipSubagents: "子代理会话跳过人设与记忆注入",
       fieldMemoryInjectMaxChars: "注入字符上限",
       fieldMemoryMaxBytes: "记忆文件大小上限",
       cardNamePlaceholder: "希希芙"
@@ -181,6 +183,7 @@ window.__ModuleLoader__.load({
       memoryIntro: "The AI reads/writes memory with memory_append / memory_read / memory_rewrite: the active persona card has its own memory, otherwise the global memory is used. Files are managed by the plugin.",
       memoryInjectHint: "Also render the memory as the soul:memory prompt section (the agent always sees its memory).",
       memoryLayeredHint: "Off by default. When enabled, core.md is injected in full while topics/*.md contributes only a title and one-line summary; memory_read(topic) retrieves full topic text on demand.",
+      skipSubagentsHint: "Off by default. When enabled, sessions DSH created as delegated children (origin: subagent) no longer receive the soul:persona / soul:memory sections. The child tools keep the same persona card and memory scope - only the prompt injection is skipped.",
       memoryMaxCharsHint: "Cap for the injected section (chars); use memory_read for the full text.",
       memoryMaxBytesHint: "Max size of one memory file.",
       switchLabel: "Persona",
@@ -192,6 +195,7 @@ window.__ModuleLoader__.load({
       wsName: "Workspace",
       fieldMemoryInject: "Inject as soul:memory prompt section",
       fieldMemoryLayered: "Enable layered memory (core + topic index)",
+      fieldSkipSubagents: "Skip persona + memory in subagent sessions",
       fieldMemoryInjectMaxChars: "Inject char cap",
       fieldMemoryMaxBytes: "Memory file size cap",
       cardNamePlaceholder: "Xixifu"
@@ -212,6 +216,7 @@ window.__ModuleLoader__.load({
       var ready = snapshot.status === "ready" && snapshot.value !== void 0;
       var [cardDraft, setCardDraft] = react.useState({ name: "", content: "" });
       var [memDraft, setMemDraft] = react.useState({});
+      var [skipDraft, setSkipDraft] = react.useState(null);
       var [busy, setBusy] = react.useState(false);
       var [notice, setNotice] = react.useState(null);
       var [error, setError] = react.useState(null);
@@ -309,6 +314,7 @@ window.__ModuleLoader__.load({
         runWrite([{ op: "set", path: ["active"], value: name }]);
       }
 
+      function skipValue() { return skipDraft !== null ? skipDraft : Boolean(value.skipSubagents); }
       function memDraftValue(f) {
         var m = memDraft[f.key];
         if (f.type === "checkbox") return m !== void 0 ? m : Boolean(value.memory?.[f.key] ?? MEMORY_DEFAULTS[f.key]);
@@ -337,11 +343,16 @@ window.__ModuleLoader__.load({
       function onSaveMemory() {
         var next = memNext();
         var base = memBase();
-        if (JSON.stringify(next) === JSON.stringify(base)) {
+        var nextSkip = skipValue();
+        var baseSkip = Boolean(value.skipSubagents);
+        if (JSON.stringify(next) === JSON.stringify(base) && nextSkip === baseSkip) {
           setBusy(false); setNotice(t("saved"));
           return;
         }
-        runWrite([{ op: "set", path: ["memory"], value: next }]);
+        var ops = [];
+        if (JSON.stringify(next) !== JSON.stringify(base)) ops.push({ op: "set", path: ["memory"], value: next });
+        if (nextSkip !== baseSkip) ops.push({ op: "set", path: ["skipSubagents"], value: nextSkip });
+        runWrite(ops);
       }
 
       return h("div", { className: "__sm_root" },
@@ -422,6 +433,13 @@ window.__ModuleLoader__.load({
         h("div", { className: "__sm_group" },
           h("p", { className: "__sm_label", style: { margin: 0 } }, t("memoryTitle")),
           h("p", { className: "__sm_hint", style: { margin: "0 0 2px" } }, t("memoryIntro")),
+          h("label", { className: "__sm_field" },
+            h("span", { className: "__sm_row" },
+              h("input", { className: "__sm_check", type: "checkbox", checked: skipValue(), onChange: function (e) { setSkipDraft(e.target.checked); setNotice0(); } }),
+              h("span", { className: "__sm_label" }, t("fieldSkipSubagents"))
+            ),
+            h("span", { className: "__sm_hint" }, t("skipSubagentsHint"))
+          ),
           MEMORY_FIELDS.map(function (f) {
             if (f.type === "checkbox") {
               return h("label", { key: f.key, className: "__sm_field" },
