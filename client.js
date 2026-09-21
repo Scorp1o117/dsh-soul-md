@@ -136,7 +136,7 @@ window.__ModuleLoader__.load({
       memoryIntro: "AI 用 memory_append / memory_read / memory_rewrite 读写记忆：当前人设卡有自己的记忆，没选卡时用全局记忆。记忆文件由插件自动管理。",
       memoryInjectHint: "把记忆渲染为 soul:memory 提示词段落（AI 可随时读到记忆）。",
       memoryLayeredHint: "默认关闭。开启后 core.md 全文参与注入，topics/*.md 只注入标题和一行摘要；AI 可用 memory_read(topic) 按需读取全文。",
-      skipSubagentsHint: "默认关闭。开启后，DSH 以 origin: subagent 创建的委派子会话不再收到 soul:persona / soul:memory 两段提示词；子代理的工具仍使用它原本的人设卡与记忆作用域，只是不再自动注入。",
+      skipSubagentsHint: "默认关闭。开启后，DSH 以 origin: \"subagent\" 创建的委派子会话不再收到 soul:persona / soul:memory 两段提示词；子代理的工具仍使用它原本的人设卡与记忆作用域，只是不再自动注入。",
       memoryMaxCharsHint: "注入段落的字符上限（超出的部分用 memory_read 读取全文）。",
       memoryMaxBytesHint: "单份记忆文件大小上限。",
       switchLabel: "人设",

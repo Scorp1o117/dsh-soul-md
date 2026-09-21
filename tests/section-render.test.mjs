@@ -85,8 +85,18 @@ function baseConfig(overrides = {}) {
   };
 }
 
-const agent = (origin) => ({ session: { id: "session-1", header: { cwd: "C:\\work", origin } } });
+/**
+ * A parent session's header has no `origin` key at all on a real host, so the
+ * field is only written when a test explicitly passes one.
+ */
+const agent = (origin) => {
+  const header = { cwd: "C:\\work" };
+  if (origin !== undefined) header.origin = origin;
+  return { session: { id: "session-1", header } };
+};
 const assembly = (origin) => ({ agent: agent(origin) });
+/** The parent-session shape a real host writes: no `origin` key whatsoever. */
+const parentAssembly = () => assembly(undefined);
 
 /** Boot the plugin against a throwaway DSH home. */
 async function boot(t, overrides) {
@@ -126,8 +136,8 @@ test("skipSubagents: the child gets neither section, the parent keeps both", asy
   assert.equal(host.sections.get("soul:persona").text(assembly("subagent")), "");
   assert.equal(host.sections.get("soul:memory").text(assembly("subagent")), "");
 
-  assert.equal(host.sections.get("soul:persona").text(assembly("user")), CARD_BODY);
-  assert.match(host.sections.get("soul:memory").text(assembly("user")), /resident memory body/);
+  assert.equal(host.sections.get("soul:persona").text(parentAssembly()), CARD_BODY);
+  assert.match(host.sections.get("soul:memory").text(parentAssembly()), /resident memory body/);
 });
 
 test("skipSubagents does not redirect a child's write to the global memory", async (t) => {
@@ -145,4 +155,13 @@ test("skipSubagents does not redirect a child's write to the global memory", asy
 
   assert.equal(existsSync(join(home, "soul-md", "memory", "global.md")), false);
   assert.equal(existsSync(join(home, "soul-md", "memory", "D.md")), true);
+});
+
+test("skipSubagents keeps a child's persona tools aimed at its own card", async (t) => {
+  const { host } = await boot(t, { skipSubagents: true });
+
+  const soul = await host.tools.get("soul_read").execute({}, { agent: agent("subagent") });
+  assert.equal(soul.exists, true);
+  assert.equal(soul.persona, "D");
+  assert.equal(soul.content, CARD_BODY);
 });

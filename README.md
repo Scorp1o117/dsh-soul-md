@@ -76,7 +76,7 @@ Then restart `dsh web` and open **Settings → 人设卡**: type a name + conten
 | legacy fields | — | `path`, `fallback`, `order`, `complete`, `watch`, `debounceMs`, `soulMaxBytes`, `personas`, `roster`, `memory.path`… kept so old composition entries and settings still validate; only used for the one-time import. |
 
 `skipSubagents` is off by default and keeps the v0.7.0 behavior. When enabled,
-sessions DSH created as delegated children (`origin: "subagent"`) no longer receive the `soul:persona` / `soul:memory` sections -
+sessions that DSH created as delegated children (`origin: "subagent"`) no longer receive the `soul:persona` / `soul:memory` sections —
 a child usually does one small job and does not need to carry the parent's full persona and long-term memory every turn.
 
 It only affects prompt injection: `cardNameOf`, `memoryTarget`, and the scope of the three `memory_*` tools are unchanged,
