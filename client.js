@@ -265,6 +265,7 @@ window.__ModuleLoader__.load({
           if (!ok) {
             setError(t("error") + "：" + t("notApplied"));
             setCardDraft(function () { return {}; });
+            setMemDraft(function () { return {}; });
             setSkipDraft(null);
             return;
           }
@@ -354,7 +355,7 @@ window.__ModuleLoader__.load({
         var ops = [];
         if (JSON.stringify(next) !== JSON.stringify(base)) ops.push({ op: "set", path: ["memory"], value: next });
         if (nextSkip !== baseSkip) ops.push({ op: "set", path: ["skipSubagents"], value: nextSkip });
-        runWrite(ops, function () { setSkipDraft(null); });
+        runWrite(ops, function () { setMemDraft(function () { return {}; }); setSkipDraft(null); });
       }
 
       return h("div", { className: "__sm_root" },

@@ -53,17 +53,18 @@ test('hosts without mutate() fall back to sequential writes', () => {
   assert.match(clientSource, /ops\.reduce\(function \(chain, op\)/);
 });
 
-test('the skip switch follows the settings snapshot again after a save or a refused write', () => {
+test('drafts follow the settings snapshot again after a save or a refused write', () => {
   // A draft wins over the snapshot while it holds a value, so a draft that
   // outlives its own save shadows the live settings for the rest of the page's
   // life: save `true` here, another tab saves `false`, and this page still shows
   // `true` -- and writes that stale `true` back on the next save, whatever else
-  // that save was for. A write the Host refused reloaded the form and said so,
-  // yet the draft survived all the same. Both paths now hand the switch back to
-  // the snapshot, which is itself read back before the split: the component's
-  // copy only catches up when the Host pushes `settings/document-updated`, and
-  // that can land after this frame -- without the read-back the form would have
-  // shown pre-write values under a "saved" notice.
+  // that save was for. The same held for every memory field. A write the Host
+  // refused reloaded the form and said so, yet both drafts survived all the
+  // same. Success and refusal now hand the fields back to the snapshot, and the
+  // snapshot itself is read back before that split: the component's copy only
+  // catches up when the Host pushes `settings/document-updated`, which can land
+  // after this frame, so the form would have shown pre-write values under a
+  // "saved" notice.
   //
   // This is a regression guard over source text, the way every client test here
   // works -- it keeps the hand-back points from being deleted, it does not run a
@@ -72,9 +73,11 @@ test('the skip switch follows the settings snapshot again after a save or a refu
   // function, a larger change than the fix asked for.
   const refused = /if \(!ok\) \{[\s\S]*?\n          \}/.exec(clientSource);
   assert.ok(refused, 'the refused-write branch was not found');
+  assert.match(refused[0], /setMemDraft\(function \(\) \{ return \{\}; \}\);/);
   assert.match(refused[0], /setSkipDraft\(null\);/);
   const saved = /runWrite\(ops, function \(\) \{ (.*) \}\);/.exec(clientSource);
   assert.ok(saved, 'the save-success callback was not found');
+  assert.match(saved[1], /setMemDraft\(function \(\) \{ return \{\}; \}\);/);
   assert.match(saved[1], /setSkipDraft\(null\);/);
   const settled = /\.then\(function \(ok\) \{([\s\S]*?)\n        \}\)/.exec(clientSource);
   assert.ok(settled, 'the settled-write handler was not found');
