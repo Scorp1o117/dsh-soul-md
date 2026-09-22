@@ -261,9 +261,11 @@ window.__ModuleLoader__.load({
         setBusy(true); setNotice0();
         commitSettingsOps(scope, ops).then(function (ok) {
           setBusy(false);
+          setSnapshot(scope.getSnapshot());
           if (!ok) {
             setError(t("error") + "：" + t("notApplied"));
             setCardDraft(function () { return {}; });
+            setSkipDraft(null);
             return;
           }
           setNotice(t("saved"));
@@ -352,7 +354,7 @@ window.__ModuleLoader__.load({
         var ops = [];
         if (JSON.stringify(next) !== JSON.stringify(base)) ops.push({ op: "set", path: ["memory"], value: next });
         if (nextSkip !== baseSkip) ops.push({ op: "set", path: ["skipSubagents"], value: nextSkip });
-        runWrite(ops);
+        runWrite(ops, function () { setSkipDraft(null); });
       }
 
       return h("div", { className: "__sm_root" },
