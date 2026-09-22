@@ -82,15 +82,21 @@ a child usually does one small job and does not need to carry the parent's full 
 It only affects prompt injection: `cardNameOf`, `memoryTarget`, and the scope of the three `memory_*` tools are unchanged,
 so a child reads and writes exactly the same card and memory files it would otherwise (nothing silently falls back to `global.md`).
 
-Compatibility: automated tests run against the host packages shipped with
-`@deepseek-ai/dsh@0.1.5-rc.2` (the current npm `latest`). `0.1.6-alpha.1` and
-`.2` are explicitly recorded as `unknown`, not claimed as supported.
+Compatibility: `@deepseek-ai/dsh@0.1.5-rc.2` remains npm `latest`; the new
+`next` is `0.1.5-rc.3`. Automated tests use rc.3 host packages, and an rc.3
+disposable Web profile booted with this plugin and served its client bundle.
+The rc.3 release currently references an unpublished
+`dsh-client-ui-sidebar-documentpreview@0.1.5-rc.3`, so that smoke profile
+temporarily overrode only that unrelated UI package to rc.2. A clean rc.3
+install cannot yet be claimed. `0.1.6-alpha.1` / `.2` and `0.1.7-alpha.1`
+remain `unknown`, not claimed as supported.
 
-## Unreleased: skip persona/memory in subagent sessions
+## v0.8.0: subagent prompt control and DSH next compatibility
 
 - Adds opt-in `skipSubagents`: delegated child sessions (`origin: "subagent"`) no longer receive the `soul:persona` / `soul:memory` sections.
 - Render path only; `cardNameOf`, `memoryTarget`, and the `memory_*` tool scopes are unchanged.
 - The settings page exposes the switch in the long-term memory group, saved together with `memory.inject` / `memory.layered`.
+- Records DSH `0.1.5-rc.3` (`next`) compatibility; unverified alpha releases remain `unknown`.
 
 ## v0.7.0: Layered memory
 

@@ -62,13 +62,14 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 它**只作用于提示词注入**：`cardNameOf`、`memoryTarget` 与三个 `memory_*` 工具的作用域完全不变，子代理的读写目标与未开启时一致，
 不会因为跳过注入而落到 `global.md`。
 
-兼容性：已在 `@deepseek-ai/dsh@0.1.5-rc.2`（当前 npm `latest`）对应的 `dsh-home-paths`、`dsh-settings` 和 `dsh-tools` 上完成自动测试。`0.1.6-alpha.1` / `.2` 尚未验证，清单中明确标为 `unknown`，不冒充支持。
+兼容性：`@deepseek-ai/dsh@0.1.5-rc.2` 仍是 npm `latest`；新增的 `next` 是 `0.1.5-rc.3`。自动测试使用 rc.3 宿主包；rc.3 一次性 Web Profile 已能启动并返回本插件的客户端 Bundle。当前 rc.3 自身依赖的 `dsh-client-ui-sidebar-documentpreview@0.1.5-rc.3` 尚未发布，因此烟测环境仅把这个与本插件无关的 UI 包临时覆盖为 rc.2，暂不能声称 rc.3 可原样完整安装。`0.1.6-alpha.1` / `.2` 与 `0.1.7-alpha.1` 均保留 `unknown`，不冒充支持。
 
-## 未发布：子代理会话跳过注入
+## v0.8.0：子代理提示词控制与 DSH next 兼容
 
 - 新增默认关闭的 `skipSubagents`：开启后，DSH 标记为 `origin: "subagent"` 的委派子会话不再注入 `soul:persona` / `soul:memory` 两段提示词。
 - 只作用于渲染路径；`cardNameOf`、`memoryTarget` 与 `memory_*` 工具的作用域不变。
 - 设置页「长期记忆」分组提供开关，与 `memory.inject` / `memory.layered` 共用保存按钮。
+- 记录 DSH `0.1.5-rc.3`（`next`）兼容性；未验证的 alpha 版本继续标记 `unknown`。
 
 ## v0.7.0：分层记忆
 
