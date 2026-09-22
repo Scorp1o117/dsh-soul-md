@@ -32,6 +32,7 @@
     "files": [
         "index.js",
         "memory-layout.js",
+        "subagents.js",
         "client.js",
         "cordis.patch.yml",
         "README.md",
@@ -78,6 +79,6 @@
         "react": "18.3.1"
     },
     "scripts": {
-        "test": "node --test tests/settings-scope-compat.test.mjs tests/settings-atomic-write.test.mjs tests/memory-layered.test.mjs tests/latest-compat.test.mjs"
+        "test": "node --test tests/settings-scope-compat.test.mjs tests/settings-atomic-write.test.mjs tests/memory-layered.test.mjs tests/latest-compat.test.mjs tests/subagent-skip.test.mjs tests/section-render.test.mjs"
     }
 }

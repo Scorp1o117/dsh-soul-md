@@ -53,9 +53,22 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 | `memory.layered` | `false` | 启用渐进式分层记忆：core 全文 + topics 索引 |
 | `memory.injectMaxChars` | `8000` | 注入段落字符上限（从文件头截取） |
 | `memory.order` | `0.5` | 注入的记忆段落顺序 |
+| `skipSubagents` | `false` | 子代理会话（DSH 标记为 `origin: "subagent"`）不注入 `soul:persona` / `soul:memory` 两段提示词；工具作用域不变 |
 | legacy 字段 | — | `path`、`fallback`、`order`、`complete`、`watch`、`debounceMs`、`soulMaxBytes`、`personas`、`roster`、`memory.path`… 保留以兼容旧配置，仅用于一次性导入 |
 
+`skipSubagents` 默认关闭，保持 v0.7.0 的现有行为。开启后，DSH 以 `origin: "subagent"` 创建的委派子会话不再收到人设卡与记忆段落——
+子代理通常只做一件小事，不必每轮都背着主会话的完整人设与长期记忆。
+
+它**只作用于提示词注入**：`cardNameOf`、`memoryTarget` 与三个 `memory_*` 工具的作用域完全不变，子代理的读写目标与未开启时一致，
+不会因为跳过注入而落到 `global.md`。
+
 兼容性：已在 `@deepseek-ai/dsh@0.1.5-rc.2`（当前 npm `latest`）对应的 `dsh-home-paths`、`dsh-settings` 和 `dsh-tools` 上完成自动测试。`0.1.6-alpha.1` / `.2` 尚未验证，清单中明确标为 `unknown`，不冒充支持。
+
+## 未发布：子代理会话跳过注入
+
+- 新增默认关闭的 `skipSubagents`：开启后，DSH 标记为 `origin: "subagent"` 的委派子会话不再注入 `soul:persona` / `soul:memory` 两段提示词。
+- 只作用于渲染路径；`cardNameOf`、`memoryTarget` 与 `memory_*` 工具的作用域不变。
+- 设置页「长期记忆」分组提供开关，与 `memory.inject` / `memory.layered` 共用保存按钮。
 
 ## v0.7.0：分层记忆
 
