@@ -10,6 +10,7 @@ test("manifest records the verified latest and next hosts and keeps alpha unclai
   assert.equal(manifest.dsh.compatibility.dshReleases["0.1.6-alpha.1"], "unknown");
   assert.equal(manifest.dsh.compatibility.dshReleases["0.1.6-alpha.2"], "unknown");
   assert.equal(manifest.dsh.compatibility.dshReleases["0.1.7-alpha.1"], "unknown");
+  assert.equal(manifest.dsh.compatibility.dshReleases["0.1.7-alpha.2"], "unknown");
   assert.equal(manifest.dsh.compatibility.node, manifest.engines.node);
   assert.deepEqual(manifest.dsh.compatibility.profiles, ["web"]);
 });

@@ -36,7 +36,7 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 
 - 人设卡：存在 `soul-md` 设置命名空间里（`settings.yaml`），即 `cards: { 名称 -> 内容 }` + `active` 默认卡 + 会话级 `sessions`
 - 记忆文件：插件托管在 `$DSH_HOME/soul-md/memory/`（`global.md` + 每张卡一个文件），按需自动创建
-- 可选分层记忆（默认关闭）：`memory/<卡名>/core.md` 全文注入，`memory/<卡名>/topics/*.md` 只把标题和首个正文行注入为索引；`memory_read({ topic: "..." })` 按需取回主题全文。开启后若尚未建立目录结构，会继续读取旧的 `<卡名>.md`，首次追加 core 时也会保留旧内容
+- 可选分层记忆（默认关闭）：`memory/<卡名>/core.md` 在注入上限内参与注入，`memory/<卡名>/topics/*.md` 只把标题和首个正文行注入为索引；`memory_read({ topic: "..." })` 按需取回主题全文。开启后若尚未建立目录结构，会继续读取旧的 `<卡名>.md`，首次追加 core 时也会保留旧内容
 - 从 ≤ v0.4 的文件版升级？插件首次运行会**自动导入**旧 `path` 卡片（名为「默认」）和旧记忆文件
 
 ## 配置
@@ -50,8 +50,8 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 | `workspaceList` | `[]` | 工作区列表（路径 + 标题），由服务端从 dsh 工作区注册表维护 |
 | `memory.maxBytes` | `1048576` | `memory_append` / `memory_rewrite` 超过此大小会拒绝 |
 | `memory.inject` | `true` | 把记忆渲染为 `soul:memory` 提示词段落 |
-| `memory.layered` | `false` | 启用渐进式分层记忆：core 全文 + topics 索引 |
-| `memory.injectMaxChars` | `8000` | 注入段落字符上限（从文件头截取） |
+| `memory.layered` | `false` | 启用渐进式分层记忆：core + topics 索引 |
+| `memory.injectMaxChars` | `8000` | 注入记忆内容的字符上限；分层模式先保留主题索引，再保留 core 首尾 |
 | `memory.order` | `0.5` | 注入的记忆段落顺序 |
 | `skipSubagents` | `false` | 子代理会话（DSH 标记为 `origin: "subagent"`）不注入 `soul:persona` / `soul:memory` 两段提示词；工具作用域不变 |
 | legacy 字段 | — | `path`、`fallback`、`order`、`complete`、`watch`、`debounceMs`、`soulMaxBytes`、`personas`、`roster`、`memory.path`… 保留以兼容旧配置，仅用于一次性导入 |
@@ -62,7 +62,13 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 它**只作用于提示词注入**：`cardNameOf`、`memoryTarget` 与三个 `memory_*` 工具的作用域完全不变，子代理的读写目标与未开启时一致，
 不会因为跳过注入而落到 `global.md`。
 
-兼容性：`@deepseek-ai/dsh@0.1.5-rc.2` 仍是 npm `latest`；新增的 `next` 是 `0.1.5-rc.3`。自动测试使用 rc.3 宿主包；rc.3 一次性 Web Profile 已能启动并返回本插件的客户端 Bundle。当前 rc.3 自身依赖的 `dsh-client-ui-sidebar-documentpreview@0.1.5-rc.3` 尚未发布，因此烟测环境仅把这个与本插件无关的 UI 包临时覆盖为 rc.2，暂不能声称 rc.3 可原样完整安装。`0.1.6-alpha.1` / `.2` 与 `0.1.7-alpha.1` 均保留 `unknown`，不冒充支持。
+兼容性：`@deepseek-ai/dsh@0.1.5-rc.3` 现为 npm `latest` 与 `next`。自动测试使用 rc.3 宿主包。`0.1.6-alpha.1` / `.2` 与 `0.1.7-alpha.1` / `.2` 保留 `unknown`，不冒充支持。
+
+## v0.8.1：人设切换与分层记忆截断修复
+
+- 会话人设写入被拒时显示错误并回滚到宿主快照；写入期间锁定下拉，避免重叠修改。
+- 分层记忆超限时优先保留主题索引，core 保留首尾，并在提示词中写明省略内容。
+- 已通过 DSH `0.1.5-rc.3` 一次性 Profile 的安装、Web 启动、首页与客户端 Bundle HTTP 检查，以及卸载验证。
 
 ## v0.8.0：子代理提示词控制与 DSH next 兼容
 

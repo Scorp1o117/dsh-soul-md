@@ -1,6 +1,6 @@
 {
     "name": "dsh-soul-md",
-    "version": "0.8.0",
+    "version": "0.8.1",
     "description": "DeepSeek Harness 的 soul.md 风格人设 + 长期记忆插件：设置页输入人设卡名称和内容即可，文件由插件自动管理；可按工作区指定人设、聊天框可给会话单独切人设；AI 可自行演化人设与记忆（soul_read/soul_update/memory_*）。",
     "type": "module",
     "main": "index.js",
@@ -23,7 +23,8 @@
                 "0.1.5-rc.3": "compatible",
                 "0.1.6-alpha.1": "unknown",
                 "0.1.6-alpha.2": "unknown",
-                "0.1.7-alpha.1": "unknown"
+                "0.1.7-alpha.1": "unknown",
+                "0.1.7-alpha.2": "unknown"
             },
             "node": ">=20.18",
             "profiles": [
@@ -81,6 +82,6 @@
         "react": "18.3.1"
     },
     "scripts": {
-        "test": "node --test tests/settings-scope-compat.test.mjs tests/settings-atomic-write.test.mjs tests/memory-layered.test.mjs tests/latest-compat.test.mjs tests/subagent-skip.test.mjs tests/section-render.test.mjs"
+        "test": "node --test tests/settings-scope-compat.test.mjs tests/settings-atomic-write.test.mjs tests/client-write-flow.test.mjs tests/memory-layered.test.mjs tests/latest-compat.test.mjs tests/subagent-skip.test.mjs tests/section-render.test.mjs"
     }
 }

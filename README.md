@@ -51,7 +51,7 @@ Then restart `dsh web` and open **Settings → 人设卡**: type a name + conten
 - Memory files: plugin-managed under `$DSH_HOME/soul-md/memory/`
   (`global.md` + one file per card), created on demand.
 - Optional layered memory (off by default): `memory/<card>/core.md` is injected
-  in full, while `memory/<card>/topics/*.md` contributes only its title and first
+  within the configured cap, while `memory/<card>/topics/*.md` contributes its title and first
   body line to an index. `memory_read({ topic: "..." })` retrieves a topic's full
   text. Existing `<card>.md` files remain readable and seed `core.md` on the first
   layered append, so enabling the option does not hide old memory.
@@ -69,8 +69,8 @@ Then restart `dsh web` and open **Settings → 人设卡**: type a name + conten
 | `workspaceList` | `[]` | Read-only workspace list (path + title), maintained by the host from dsh's workspace registry. |
 | `memory.maxBytes` | `1048576` | `memory_append` / `memory_rewrite` refuse to exceed this size. |
 | `memory.inject` | `true` | Render the memory as the `soul:memory` prompt section. |
-| `memory.layered` | `false` | Enable progressive disclosure: full core plus a topics index. |
-| `memory.injectMaxChars` | `8000` | Cap for the injected section (from the file head). |
+| `memory.layered` | `false` | Enable progressive disclosure: core plus a topics index. |
+| `memory.injectMaxChars` | `8000` | Cap for injected memory content. Layered mode reserves the topic index first, then retains the beginning and end of core. |
 | `memory.order` | `0.5` | Prompt section order for the injected memory section. |
 | `skipSubagents` | `false` | Delegated child sessions (DSH marks them `origin: "subagent"`) skip the `soul:persona` / `soul:memory` sections; tool scopes are unchanged. |
 | legacy fields | — | `path`, `fallback`, `order`, `complete`, `watch`, `debounceMs`, `soulMaxBytes`, `personas`, `roster`, `memory.path`… kept so old composition entries and settings still validate; only used for the one-time import. |
@@ -82,14 +82,15 @@ a child usually does one small job and does not need to carry the parent's full 
 It only affects prompt injection: `cardNameOf`, `memoryTarget`, and the scope of the three `memory_*` tools are unchanged,
 so a child reads and writes exactly the same card and memory files it would otherwise (nothing silently falls back to `global.md`).
 
-Compatibility: `@deepseek-ai/dsh@0.1.5-rc.2` remains npm `latest`; the new
-`next` is `0.1.5-rc.3`. Automated tests use rc.3 host packages, and an rc.3
-disposable Web profile booted with this plugin and served its client bundle.
-The rc.3 release currently references an unpublished
-`dsh-client-ui-sidebar-documentpreview@0.1.5-rc.3`, so that smoke profile
-temporarily overrode only that unrelated UI package to rc.2. A clean rc.3
-install cannot yet be claimed. `0.1.6-alpha.1` / `.2` and `0.1.7-alpha.1`
-remain `unknown`, not claimed as supported.
+Compatibility: `@deepseek-ai/dsh@0.1.5-rc.3` is npm `latest` and `next`.
+Automated tests use rc.3 host packages. `0.1.6-alpha.1` / `.2` and
+`0.1.7-alpha.1` / `.2` remain `unknown`, not claimed as supported.
+
+## v0.8.1: reliable persona switching and layered memory truncation
+
+- Reports refused session persona writes, rolls the selector back to the Host snapshot, and blocks overlapping selector changes while a write is pending.
+- Keeps the topic index when layered memory exceeds its injection cap, retains both ends of core, and names omitted content in the prompt.
+- Passed install, Web boot, homepage and client-bundle HTTP checks, and uninstall in a disposable DSH `0.1.5-rc.3` Profile.
 
 ## v0.8.0: subagent prompt control and DSH next compatibility
 

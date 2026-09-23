@@ -223,11 +223,27 @@ function apply(ctx, config) {
     const rendered = [text, index].filter(Boolean).join("\n\n");
     if (!rendered) return "";
     const cap = Math.max(0, Math.floor(c.memory.injectMaxChars ?? 8000));
-    let out = rendered;
-    if (out.length > cap) {
-      out = out.slice(0, cap) + "\n\n> 记忆超出注入上限，可用 memory_read 读取全文 / memory exceeds the inject cap — use memory_read for the full text.";
+    if (rendered.length <= cap) return rendered;
+    if (!index) {
+      return rendered.slice(0, cap) + "\n\n> 记忆尾部未注入，请用 memory_read 读取全文 / memory tail omitted; use memory_read for the full text.";
     }
-    return out;
+    if (index.length > cap) {
+      return index.slice(0, cap) + "\n\n> 主题索引未完整注入，core 未注入；请用 memory_read 读取全文 / topic index incomplete; core omitted; use memory_read.";
+    }
+    // Reserve the complete topic index before allocating the remaining space
+    // to core. Keep both ends of core so recent appends remain visible.
+    const coreCap = Math.max(0, cap - index.length - (text ? 2 : 0));
+    const separator = "\n…\n";
+    const contentCap = Math.max(0, coreCap - separator.length);
+    const headLength = Math.ceil(contentCap / 2);
+    const tailLength = contentCap - headLength;
+    const core = text.length <= coreCap
+      ? text
+      : coreCap < separator.length
+        ? (coreCap ? text.slice(-coreCap) : "")
+        : text.slice(0, headLength) + separator + (tailLength ? text.slice(-tailLength) : "");
+    return [core, index].filter(Boolean).join("\n\n")
+      + "\n\n> core 部分内容未注入，请用 memory_read 读取全文 / part of core omitted; use memory_read for the full text.";
   };
 
   // ── prompt sections (function text: resolved per assembly, hot by nature) ──

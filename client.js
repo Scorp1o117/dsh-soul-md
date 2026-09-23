@@ -135,7 +135,7 @@ window.__ModuleLoader__.load({
       memoryTitle: "长期记忆（插件托管）",
       memoryIntro: "AI 用 memory_append / memory_read / memory_rewrite 读写记忆：当前人设卡有自己的记忆，没选卡时用全局记忆。记忆文件由插件自动管理。",
       memoryInjectHint: "把记忆渲染为 soul:memory 提示词段落（AI 可随时读到记忆）。",
-      memoryLayeredHint: "默认关闭。开启后 core.md 全文参与注入，topics/*.md 只注入标题和一行摘要；AI 可用 memory_read(topic) 按需读取全文。",
+      memoryLayeredHint: "默认关闭。开启后优先保留 topics/*.md 的标题和摘要索引；core.md 超过注入上限时保留首尾。AI 可用 memory_read(topic) 按需读取全文。",
       skipSubagentsHint: "默认关闭。开启后，DSH 以 origin: \"subagent\" 创建的委派子会话不再收到 soul:persona / soul:memory 两段提示词；子代理的工具仍使用它原本的人设卡与记忆作用域，只是不再自动注入。",
       memoryMaxCharsHint: "注入段落的字符上限（超出的部分用 memory_read 读取全文）。",
       memoryMaxBytesHint: "单份记忆文件大小上限。",
@@ -182,7 +182,7 @@ window.__ModuleLoader__.load({
       memoryTitle: "Long-term memory (plugin-managed)",
       memoryIntro: "The AI reads/writes memory with memory_append / memory_read / memory_rewrite: the active persona card has its own memory, otherwise the global memory is used. Files are managed by the plugin.",
       memoryInjectHint: "Also render the memory as the soul:memory prompt section (the agent always sees its memory).",
-      memoryLayeredHint: "Off by default. When enabled, core.md is injected in full while topics/*.md contributes only a title and one-line summary; memory_read(topic) retrieves full topic text on demand.",
+      memoryLayeredHint: "Off by default. The topics/*.md title and summary index takes priority; if core.md exceeds the injection cap, its beginning and end remain visible. memory_read(topic) retrieves full topic text on demand.",
       skipSubagentsHint: "Off by default. When enabled, sessions DSH created as delegated children (origin: subagent) no longer receive the soul:persona / soul:memory sections. The child tools keep the same persona card and memory scope - only the prompt injection is skipped.",
       memoryMaxCharsHint: "Cap for the injected section (chars); use memory_read for the full text.",
       memoryMaxBytesHint: "Max size of one memory file.",
@@ -218,6 +218,7 @@ window.__ModuleLoader__.load({
       var [memDraft, setMemDraft] = react.useState({});
       var [skipDraft, setSkipDraft] = react.useState(null);
       var [busy, setBusy] = react.useState(false);
+      var writePending = react.useRef(false);
       var [notice, setNotice] = react.useState(null);
       var [error, setError] = react.useState(null);
 
@@ -258,8 +259,11 @@ window.__ModuleLoader__.load({
        * reloaded from whatever the Host actually holds.
        */
       function runWrite(ops, onOk) {
+        if (writePending.current) return;
+        writePending.current = true;
         setBusy(true); setNotice0();
         commitSettingsOps(scope, ops).then(function (ok) {
+          writePending.current = false;
           setBusy(false);
           setSnapshot(scope.getSnapshot());
           if (!ok) {
@@ -272,7 +276,9 @@ window.__ModuleLoader__.load({
           setNotice(t("saved"));
           if (onOk) onOk();
         }).catch(function (e) {
-          setBusy(false); setError(t("error") + ": " + String(e && e.message || e));
+          writePending.current = false;
+          setBusy(false); setSnapshot(scope.getSnapshot());
+          setError(t("error") + ": " + String(e && e.message || e));
         });
       }
 
@@ -388,7 +394,7 @@ window.__ModuleLoader__.load({
           h("label", { className: "__sm_field" },
             h("span", { className: "__sm_label" }, t("defaultBadge")),
             h("span", { className: "__sm_hint" }, t("activeHint")),
-            h("select", { className: "__sm_input", value: active || "", onChange: function (e) { var v = e.target.value; if (!v) runWrite([{ op: "unset", path: ["active"] }]); else onSetActive(v); } },
+            h("select", { className: "__sm_input", value: active || "", disabled: busy, onChange: function (e) { var v = e.target.value; if (!v) runWrite([{ op: "unset", path: ["active"] }]); else onSetActive(v); } },
               h("option", { value: "" }, t("noneOption")),
               cardNames.map(function (n) { return h("option", { key: n, value: n }, n); })
             )
@@ -422,14 +428,15 @@ window.__ModuleLoader__.load({
                   if (current && current !== "none" && !(current in cards)) current = "";
                   return h("label", { key: ws.path, className: "__sm_field" },
                     h("span", { className: "__sm_label", title: ws.path }, (ws.title || ws.path)),
-                    h("select", { className: "__sm_input", value: current, onChange: function (e) { onWsChange(ws.path, e.target.value); } },
+                    h("select", { className: "__sm_input", value: current, disabled: busy, onChange: function (e) { onWsChange(ws.path, e.target.value); } },
                       h("option", { value: "" }, t("wsFollow")),
                       h("option", { value: "none" }, t("noneOption")),
                       cardNames.map(function (n) { return h("option", { key: n, value: n }, n); })
                     )
                   );
                 })
-              )
+              ),
+          error ? h("span", { className: "__sm_error", role: "alert" }, error) : null
         ),
 
         // ── memory (plugin-managed) ──────────────────────────────────────
@@ -475,6 +482,9 @@ window.__ModuleLoader__.load({
       var scope = props.scope;
       var sessionId = props.sessionId;
       var [snapshot, setSnapshot] = react.useState(function () { return scope.getSnapshot(); });
+      var [busy, setBusy] = react.useState(false);
+      var [error, setError] = react.useState(null);
+      var writePending = react.useRef(false);
       react.useEffect(function () {
         // No refresh call here: the scope's public seam has no load(). Reads ride
         // the shared describe mirror, which re-reads on every Host
@@ -498,21 +508,36 @@ window.__ModuleLoader__.load({
       if (choice && choice !== "none" && !(choice in cards)) choice = "";
       var cardNames = Object.keys(cards).sort();
       function onChange(e) {
+        if (writePending.current) return;
+        writePending.current = true;
+        setBusy(true);
+        setError(null);
         var v = e.target.value;
         var next = Object.assign({}, sessions);
         if (v === "") delete next[sessionId];
         else next[sessionId] = v;
-        commitSettingsOps(scope, [{ op: "set", path: ["sessions"], value: next }]).catch(function () {});
+        commitSettingsOps(scope, [{ op: "set", path: ["sessions"], value: next }]).then(function (ok) {
+          writePending.current = false;
+          setBusy(false);
+          setSnapshot(scope.getSnapshot());
+          if (!ok) setError(t("error") + "：" + t("notApplied"));
+        }).catch(function (e) {
+          writePending.current = false;
+          setBusy(false);
+          setSnapshot(scope.getSnapshot());
+          setError(t("error") + ": " + String(e && e.message || e));
+        });
       }
       return h("label", { className: "__sm_switch", title: t("switchTitle") },
         h("span", { className: "__sm_switchLabel" }, t("switchLabel")),
-        h("select", { className: "__sm_switchSelect", value: choice, onChange: onChange },
+        h("select", { className: "__sm_switchSelect", value: choice, disabled: busy, onChange: onChange },
           h("option", { value: "" }, t("autoOption")),
           h("option", { value: "none" }, t("noneOption")),
           cardNames.map(function (n) {
             return h("option", { key: n, value: n }, n);
           })
-        )
+        ),
+        error ? h("span", { className: "__sm_error", role: "alert" }, error) : null
       );
     }
 

@@ -165,3 +165,34 @@ test("skipSubagents keeps a child's persona tools aimed at its own card", async 
   assert.equal(soul.persona, "D");
   assert.equal(soul.content, CARD_BODY);
 });
+
+test("layered injection keeps the topic index and both ends of a long core", async (t) => {
+  const { host, home } = await boot(t, {
+    memory: { inject: true, layered: true, injectMaxChars: 350, maxBytes: 1048576, order: 0.5 },
+  });
+  const root = join(home, "soul-md", "memory", "D");
+  await mkdir(join(root, "topics"), { recursive: true });
+  await writeFile(join(root, "core.md"), "START " + "x".repeat(500) + " RECENT", "utf8");
+  await writeFile(join(root, "topics", "project.md"), "# Project\n\nA useful summary.", "utf8");
+
+  const injected = host.sections.get("soul:memory").text(parentAssembly());
+  assert.match(injected, /^START /);
+  assert.match(injected, / RECENT\n\n## 主题记忆索引/);
+  assert.match(injected, /`project` — Project：A useful summary\./);
+  assert.match(injected, /core 部分内容未注入/);
+  assert.ok(injected.indexOf(" RECENT") < injected.indexOf("`project`"));
+});
+
+test("a topic index larger than the cap is reported as incomplete", async (t) => {
+  const { host, home } = await boot(t, {
+    memory: { inject: true, layered: true, injectMaxChars: 60, maxBytes: 1048576, order: 0.5 },
+  });
+  const root = join(home, "soul-md", "memory", "D");
+  await mkdir(join(root, "topics"), { recursive: true });
+  await writeFile(join(root, "core.md"), "Core text", "utf8");
+  await writeFile(join(root, "topics", "project.md"), "# Project\n\nA useful summary.", "utf8");
+
+  const injected = host.sections.get("soul:memory").text(parentAssembly());
+  assert.doesNotMatch(injected, /Core text/);
+  assert.match(injected, /主题索引未完整注入/);
+});
