@@ -32,12 +32,10 @@ test('section unmount must not dispose the plugin-shared settings scope', () => 
   assert.doesNotMatch(clientSource, /scope\.dispose\(\)/);
 });
 
-test('package requires a DSH host that exposes plugin settings natively', () => {
+test('package requires the DSH configForms host', () => {
   for (const [name, range] of Object.entries(manifest.peerDependencies)) {
     if (!name.startsWith('@deepseek-ai/dsh-')) continue;
-    assert.match(range, /\^0\.1\.0-rc\.7/);
-    assert.match(range, /\^0\.1\.1-rc\.1/);
-    assert.doesNotMatch(range, /rc\.6/);
+    assert.equal(range, '^0.1.7-rc.1');
   }
 });
 

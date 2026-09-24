@@ -46,7 +46,7 @@ Then restart `dsh web` and open **Settings → 人设卡**: type a name + conten
 
 ## Where things live (you don't need to care, but for reference)
 
-- Persona cards: stored in the `soul-md` settings namespace (`settings.yaml`),
+- Persona cards: stored in the `soul-md` entry of the active Profile patch,
   as `cards: { name -> markdown }` + `active` + per-session `sessions`.
 - Memory files: plugin-managed under `$DSH_HOME/soul-md/memory/`
   (`global.md` + one file per card), created on demand.
@@ -82,9 +82,9 @@ a child usually does one small job and does not need to carry the parent's full 
 It only affects prompt injection: `cardNameOf`, `memoryTarget`, and the scope of the three `memory_*` tools are unchanged,
 so a child reads and writes exactly the same card and memory files it would otherwise (nothing silently falls back to `global.md`).
 
-Compatibility: `@deepseek-ai/dsh@0.1.5-rc.3` is npm `latest` and `next`.
-Automated tests use rc.3 host packages. `0.1.6-alpha.1` / `.2` and
-`0.1.7-alpha.1` / `.2` remain `unknown`, not claimed as supported.
+Compatibility: `@deepseek-ai/dsh@0.1.7-rc.1` is npm `next`; npm `latest` is
+`0.1.5-rc.3`. This version uses Profile patch settings and browser `configForms`.
+Older hosts require an older plugin release. Alpha builds remain `unknown`.
 
 ## v0.8.1: reliable persona switching and layered memory truncation
 

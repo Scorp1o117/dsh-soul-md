@@ -38,6 +38,7 @@ function makeHost(config) {
       },
     },
     effect: (fn) => track(fn()),
+    on: () => () => {},
     inject: (_deps, cb) => {
       // A real host hands the settings scope over asynchronously; keeping that
       // timing also lets apply finish defining its closures before onChange runs.

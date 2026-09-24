@@ -34,7 +34,7 @@ function mountSwitcher(scope) {
   plugin.apply({
     locale: { bind: () => (key) => key, register: () => () => {} },
     effect: (fn) => fn(),
-    settingsScope: { bind: () => scope },
+    configForms: { get: () => scope },
     slots: {
       inject: (_name, fn) => fn(),
       register: (meta, fn) => callbacks.set(meta.id, fn),

@@ -109,7 +109,7 @@ const Config = z.object({
     label: z.string(),
     kind: z.string(),
   })).default([]),
-});
+}).volatile();
 
 function apply(ctx, config) {
   let sourceGetter = null;
@@ -122,7 +122,7 @@ function apply(ctx, config) {
   let wsTimer = undefined;
   let wsWatcher = undefined;
 
-  const cfg = () => (sourceGetter ? sourceGetter() : config);
+  const cfg = () => (sourceGetter ? sourceGetter() : typeof config.get === "function" ? config.get() : config);
 
   /** Synchronous mtime-cached read; null when missing/unreadable. */
   const readCached = (file) => {
@@ -285,35 +285,17 @@ function apply(ctx, config) {
   }, "soul-md.sections()");
 
   // ── settings-backed configuration ─────────────────────────────────────────
-  // Compat shim: dsh-settings 0.1.2-rc.1 removed the module-level
-  // `installSettingsSection` export (the provider now lives at ctx.settings).
-  // This inlines the same logic via ctx.inject(["settings"]), which works on
-  // both 0.1.1 (module export wrapper) and 0.1.2 (ctx.settings) hosts.
-  const installSettingsSectionCompat = (ns, schema, entry, hooks) => {
-    ctx.inject(["settings"], (sctx) => {
-      const scope = sctx.settings.register(ns, schema, { base: entry });
-      hooks.setSource(() => scope.get());
-      sctx.effect(() => () => {
-        hooks.setSource(() => entry);
-        hooks.onChange();
-      });
-      hooks.onChange();
-      scope.watch(() => {
-        hooks.onChange();
-      });
-    });
+  // DSH 0.1.7 exposes Config directly as live profile fields.
+  const onSettingsChange = () => {
+    registerSections();
+    void maybeMigrate();
+    void publishWorkspaces();
+    startWorkspaceWatch();
   };
-  installSettingsSectionCompat(NS, Config, config, {
-    setSource: (getter) => {
-      sourceGetter = getter;
-    },
-    onChange: () => {
-      registerSections();
-      void maybeMigrate();
-      void publishWorkspaces();
-      startWorkspaceWatch();
-    },
+  ctx.on("settings/document-updated", (id) => {
+    if (id === NS) onSettingsChange();
   });
+  queueMicrotask(onSettingsChange);
 
   // ── one-time migration from the legacy file-based layout ──────────────────
   // When no cards exist yet and the legacy `path` card file is readable,
@@ -344,7 +326,15 @@ function apply(ctx, config) {
       if (!settings) return; // not ready yet — retried on the next onChange
       migrated = true;
       const c = cfg();
-      if (!c.cards || Object.keys(c.cards).length === 0) {
+      // The new host imports settings.yaml after plugins mount. If that file
+      // already owns cards, let its one-time import win over the older soul.md
+      // fallback; otherwise the fallback creates an unwanted second card.
+      const oldSettings = readCached(join(resolveDshHome(), "settings.yaml"))
+        ?? readCached(join(resolveDshHome(), "settings.yaml.imported"));
+      const settingsOwnCards = oldSettings != null
+        && /^soul-md:\s*$/m.test(oldSettings)
+        && /^\s+cards:\s*$/m.test(oldSettings);
+      if ((!c.cards || Object.keys(c.cards).length === 0) && !settingsOwnCards) {
         const legacy = legacyFileOf();
         if (legacy) {
           const text = await readFile(legacy, "utf8");

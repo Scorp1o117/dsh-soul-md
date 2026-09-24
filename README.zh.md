@@ -34,7 +34,7 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 
 ## 文件在哪（你不用管，仅供参考）
 
-- 人设卡：存在 `soul-md` 设置命名空间里（`settings.yaml`），即 `cards: { 名称 -> 内容 }` + `active` 默认卡 + 会话级 `sessions`
+- 人设卡：存在当前 Profile patch 的 `soul-md` 配置里，即 `cards: { 名称 -> 内容 }` + `active` 默认卡 + 会话级 `sessions`
 - 记忆文件：插件托管在 `$DSH_HOME/soul-md/memory/`（`global.md` + 每张卡一个文件），按需自动创建
 - 可选分层记忆（默认关闭）：`memory/<卡名>/core.md` 在注入上限内参与注入，`memory/<卡名>/topics/*.md` 只把标题和首个正文行注入为索引；`memory_read({ topic: "..." })` 按需取回主题全文。开启后若尚未建立目录结构，会继续读取旧的 `<卡名>.md`，首次追加 core 时也会保留旧内容
 - 从 ≤ v0.4 的文件版升级？插件首次运行会**自动导入**旧 `path` 卡片（名为「默认」）和旧记忆文件
@@ -62,7 +62,7 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 它**只作用于提示词注入**：`cardNameOf`、`memoryTarget` 与三个 `memory_*` 工具的作用域完全不变，子代理的读写目标与未开启时一致，
 不会因为跳过注入而落到 `global.md`。
 
-兼容性：`@deepseek-ai/dsh@0.1.5-rc.3` 现为 npm `latest` 与 `next`。自动测试使用 rc.3 宿主包。`0.1.6-alpha.1` / `.2` 与 `0.1.7-alpha.1` / `.2` 保留 `unknown`，不冒充支持。
+兼容性：适配 `@deepseek-ai/dsh@0.1.7-rc.1`（npm `next`）；npm `latest` 是 `0.1.5-rc.3`。新版使用 Profile patch 与客户端 `configForms`。旧宿主请使用插件旧版；alpha 构建仍标记 `unknown`。
 
 ## v0.8.1：人设切换与分层记忆截断修复
 

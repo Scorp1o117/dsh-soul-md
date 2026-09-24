@@ -10,9 +10,9 @@ test('one scope serves the namespace, not one per surface', () => {
   // its own `pendingRevision` and write queue, so a write from one surface could
   // fence against a revision the other had already superseded — the Host refuses
   // the stale write and the scope still settles it as success.
-  const binds = clientSource.match(/ctx\.settingsScope\.bind\(/g) ?? [];
+  const binds = clientSource.match(/ctx\.configForms\.get\(/g) ?? [];
   assert.equal(binds.length, 1, `expected a single bind, found ${binds.length}`);
-  assert.match(clientSource, /var scope = ctx\.settingsScope\.bind\(\{ namespace: "soul-md" \}\)/);
+  assert.match(clientSource, /var scope = ctx\.configForms\.get\("soul-md"\)/);
   assert.match(clientSource, /\{ scope: scope \}/);
   assert.match(clientSource, /\{ scope: scope, t: t \}/);
 });

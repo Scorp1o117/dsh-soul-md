@@ -55,7 +55,7 @@ window.__ModuleLoader__.load({
 
     // ── locale ────────────────────────────────────────────────────────────
     var NS = "soulMd";
-    var inject = ["slots", "locale", "settingsScope"];
+    var inject = ["slots", "locale", "configForms"];
 
     /**
      * Whether a namespace section now reflects every queued operation.
@@ -551,7 +551,7 @@ window.__ModuleLoader__.load({
       // write from the header and one from this section could each fence against
       // a revision the other had already superseded — the Host refuses the stale
       // write and the scope still settles it as success.
-      var scope = ctx.settingsScope.bind({ namespace: "soul-md" });
+      var scope = ctx.configForms.get("soul-md");
       ctx.slots.inject("settings.section", function () {
         return ctx.slots.register({
           name: "settings.section",
