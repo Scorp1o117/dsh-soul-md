@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import vm from 'node:vm';
 
 const clientSource = await readFile(new URL('../client.js', import.meta.url), 'utf8');
 
@@ -85,4 +86,29 @@ test('drafts follow the settings snapshot again after a save or a refused write'
   assert.ok(readBack >= 0, 'the handler never reads the snapshot back');
   assert.ok(readBack < settled[1].indexOf('if (!ok)'),
     'the snapshot has to come back before the split, so both outcomes get it');
+});
+
+test('projected memory defaults do not cause a false write rejection', () => {
+  const helper = /function settingsOpsApplied\(snapshot, ops\) \{[\s\S]*?\n    \}/.exec(clientSource);
+  assert.ok(helper);
+  const applied = vm.runInNewContext(`(${helper[0]})`);
+  const snapshot = { status: 'ready', value: { memory: {
+    maxBytes: 1048576, inject: true, layered: true, injectMaxChars: 15999,
+    order: 0.5, path: 'legacy.md', workspaceFile: 'workspace.md',
+  } } };
+  const ops = [{ op: 'set', path: ['memory'], value: {
+    inject: true, layered: true, injectMaxChars: 15999, maxBytes: 1048576,
+  } }];
+  assert.equal(applied(snapshot, ops), true);
+  snapshot.value.memory.injectMaxChars = 16000;
+  assert.equal(applied(snapshot, ops), false);
+});
+
+test('memory saves preserve hidden fields and a refused write preserves the card draft', () => {
+  assert.match(clientSource, /Object\.assign\(\{\}, value\.memory \|\| \{\}, next\)/);
+  const refused = /if \(!ok\) \{[\s\S]*?\n          \}/.exec(clientSource);
+  assert.ok(refused);
+  assert.doesNotMatch(refused[0], /setCardDraft/);
+  assert.match(clientSource, /String\(cur\)\.trim\(\) === ""/);
+  assert.match(clientSource, /number < 1/);
 });

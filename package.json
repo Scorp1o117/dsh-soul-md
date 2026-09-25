@@ -1,6 +1,6 @@
 {
     "name": "dsh-soul-md",
-    "version": "0.8.3",
+    "version": "0.8.4",
     "description": "DeepSeek Harness 的 soul.md 风格人设 + 长期记忆插件：设置页输入人设卡名称和内容即可，文件由插件自动管理；可按工作区指定人设、聊天框可给会话单独切人设；AI 可自行演化人设与记忆（soul_read/soul_update/memory_*）。",
     "type": "module",
     "main": "index.js",
@@ -25,7 +25,8 @@
                 "0.1.6-alpha.2": "unknown",
                 "0.1.7-alpha.1": "unknown",
                 "0.1.7-alpha.2": "unknown",
-                "0.1.7-rc.1": "compatible"
+                "0.1.7-rc.1": "compatible",
+                "0.1.7-rc.2": "compatible"
             },
             "node": ">=20.18",
             "profiles": [
@@ -77,10 +78,10 @@
         "react": "^18.2.0"
     },
     "devDependencies": {
-        "@deepseek-ai/dsh": "^0.1.7-rc.1",
-        "@deepseek-ai/dsh-home-paths": "0.1.7-rc.1",
-        "@deepseek-ai/dsh-settings": "0.1.7-rc.1",
-        "@deepseek-ai/dsh-tools": "0.1.7-rc.1",
+        "@deepseek-ai/dsh": "0.1.7-rc.2",
+        "@deepseek-ai/dsh-home-paths": "0.1.7-rc.2",
+        "@deepseek-ai/dsh-settings": "0.1.7-rc.2",
+        "@deepseek-ai/dsh-tools": "0.1.7-rc.2",
         "react": "18.3.1"
     },
     "scripts": {

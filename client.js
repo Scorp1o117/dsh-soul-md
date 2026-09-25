@@ -73,6 +73,11 @@ window.__ModuleLoader__.load({
         var key = op.path[0];
         if (op.op === "unset") {
           if (key in user) return false;
+        } else if (key === "memory" && op.value && typeof op.value === "object") {
+          var actual = snapshot.value.memory;
+          if (!actual || Object.keys(op.value).some(function (field) {
+            return JSON.stringify(actual[field]) !== JSON.stringify(op.value[field]);
+          })) return false;
         } else if (JSON.stringify(snapshot.value[key]) !== JSON.stringify(op.value)) {
           return false;
         }
@@ -129,7 +134,8 @@ window.__ModuleLoader__.load({
       saved: "已保存",
       saving: "保存中…",
       error: "操作失败",
-      notApplied: "写入未生效（可能与他人同时修改冲突），已重新载入",
+      notApplied: "写入未生效，请检查当前设置",
+      invalidMemoryNumber: "字符上限和文件大小上限必须是大于零的整数",
       unavailable: "设置命名空间不可用（服务端未注册 soul-md 命名空间？）",
       loading: "加载中…",
       memoryTitle: "长期记忆（插件托管）",
@@ -137,7 +143,7 @@ window.__ModuleLoader__.load({
       memoryInjectHint: "把记忆渲染为 soul:memory 提示词段落（AI 可随时读到记忆）。",
       memoryLayeredHint: "默认关闭。开启后优先保留 topics/*.md 的标题和摘要索引；core.md 超过注入上限时保留首尾。AI 可用 memory_read(topic) 按需读取全文。",
       skipSubagentsHint: "默认关闭。开启后，DSH 以 origin: \"subagent\" 创建的委派子会话不再收到 soul:persona / soul:memory 两段提示词；子代理的工具仍使用它原本的人设卡与记忆作用域，只是不再自动注入。",
-      memoryMaxCharsHint: "注入段落的字符上限（超出的部分用 memory_read 读取全文）。",
+      memoryMaxCharsHint: "注入段落的字符上限；超限时保留首尾，全文可用 memory_read 读取。",
       memoryMaxBytesHint: "单份记忆文件大小上限。",
       switchLabel: "人设",
       switchTitle: "切换当前会话的人设（会话级，优先于工作区/默认卡）",
@@ -176,7 +182,8 @@ window.__ModuleLoader__.load({
       saved: "Saved",
       saving: "Saving…",
       error: "Operation failed",
-      notApplied: "Write did not take effect (possibly a concurrent-edit conflict); the form was reloaded",
+      notApplied: "Write did not take effect; check the current settings",
+      invalidMemoryNumber: "The character and file size caps must be positive integers",
       unavailable: "Settings namespace unavailable (soul-md namespace not registered server-side?)",
       loading: "Loading…",
       memoryTitle: "Long-term memory (plugin-managed)",
@@ -184,7 +191,7 @@ window.__ModuleLoader__.load({
       memoryInjectHint: "Also render the memory as the soul:memory prompt section (the agent always sees its memory).",
       memoryLayeredHint: "Off by default. The topics/*.md title and summary index takes priority; if core.md exceeds the injection cap, its beginning and end remain visible. memory_read(topic) retrieves full topic text on demand.",
       skipSubagentsHint: "Off by default. When enabled, sessions DSH created as delegated children (origin: subagent) no longer receive the soul:persona / soul:memory sections. The child tools keep the same persona card and memory scope - only the prompt injection is skipped.",
-      memoryMaxCharsHint: "Cap for the injected section (chars); use memory_read for the full text.",
+      memoryMaxCharsHint: "Cap for the injected section (chars); truncation retains both ends. Use memory_read for the full text.",
       memoryMaxBytesHint: "Max size of one memory file.",
       switchLabel: "Persona",
       switchTitle: "Switch this session's persona (session-level, overrides workspace/default)",
@@ -268,7 +275,6 @@ window.__ModuleLoader__.load({
           setSnapshot(scope.getSnapshot());
           if (!ok) {
             setError(t("error") + "：" + t("notApplied"));
-            setCardDraft(function () { return {}; });
             setMemDraft(function () { return {}; });
             setSkipDraft(null);
             return;
@@ -337,9 +343,14 @@ window.__ModuleLoader__.load({
         var out = {};
         MEMORY_FIELDS.forEach(function (f) {
           var cur = memDraftValue(f);
-          out[f.key] = f.type === "checkbox" ? Boolean(cur) : Number(cur);
+          if (f.type === "checkbox") out[f.key] = Boolean(cur);
+          else {
+            var number = Number(cur);
+            if (String(cur).trim() === "" || !Number.isSafeInteger(number) || number < 1) return;
+            out[f.key] = number;
+          }
         });
-        return out;
+        return Object.keys(out).length === MEMORY_FIELDS.length ? out : null;
       }
       function memBase() {
         var out = {};
@@ -351,6 +362,7 @@ window.__ModuleLoader__.load({
       }
       function onSaveMemory() {
         var next = memNext();
+        if (!next) { setError(t("error") + "：" + t("invalidMemoryNumber")); return; }
         var base = memBase();
         var nextSkip = skipValue();
         var baseSkip = Boolean(value.skipSubagents);
@@ -359,7 +371,7 @@ window.__ModuleLoader__.load({
           return;
         }
         var ops = [];
-        if (JSON.stringify(next) !== JSON.stringify(base)) ops.push({ op: "set", path: ["memory"], value: next });
+        if (JSON.stringify(next) !== JSON.stringify(base)) ops.push({ op: "set", path: ["memory"], value: Object.assign({}, value.memory || {}, next) });
         if (nextSkip !== baseSkip) ops.push({ op: "set", path: ["skipSubagents"], value: nextSkip });
         runWrite(ops, function () { setMemDraft(function () { return {}; }); setSkipDraft(null); });
       }
@@ -462,7 +474,7 @@ window.__ModuleLoader__.load({
             }
             return h("label", { key: f.key, className: "__sm_field" },
               h("span", { className: "__sm_label" }, t(f.label)),
-              h("input", { className: "__sm_input", type: "number", value: memDraftValue(f), onChange: function (e) { setMemField(f, e.target.value); } }),
+              h("input", { className: "__sm_input", type: "number", min: 1, step: 1, value: memDraftValue(f), onChange: function (e) { setMemField(f, e.target.value); } }),
               f.hint ? h("span", { className: "__sm_hint" }, t(f.hint)) : null
             );
           }),

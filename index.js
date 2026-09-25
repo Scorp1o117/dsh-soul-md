@@ -36,7 +36,7 @@ import { isAbsolute, join, dirname } from "node:path";
 import z from "@deepseek-ai/schemastery";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { createMemoryLayout } from "./memory-layout.js";
+import { createMemoryLayout, retainMemoryEnds } from "./memory-layout.js";
 import { skipsSubagentSections } from "./subagents.js";
 
 /** Cordis plugin name. */
@@ -225,7 +225,7 @@ function apply(ctx, config) {
     const cap = Math.max(0, Math.floor(c.memory.injectMaxChars ?? 8000));
     if (rendered.length <= cap) return rendered;
     if (!index) {
-      return rendered.slice(0, cap) + "\n\n> 记忆尾部未注入，请用 memory_read 读取全文 / memory tail omitted; use memory_read for the full text.";
+      return retainMemoryEnds(rendered, cap) + "\n\n> 部分记忆未注入（已保留首尾），请用 memory_read 读取全文 / part of memory omitted (beginning and end retained); use memory_read for the full text.";
     }
     if (index.length > cap) {
       return index.slice(0, cap) + "\n\n> 主题索引未完整注入，core 未注入；请用 memory_read 读取全文 / topic index incomplete; core omitted; use memory_read.";
@@ -233,15 +233,7 @@ function apply(ctx, config) {
     // Reserve the complete topic index before allocating the remaining space
     // to core. Keep both ends of core so recent appends remain visible.
     const coreCap = Math.max(0, cap - index.length - (text ? 2 : 0));
-    const separator = "\n…\n";
-    const contentCap = Math.max(0, coreCap - separator.length);
-    const headLength = Math.ceil(contentCap / 2);
-    const tailLength = contentCap - headLength;
-    const core = text.length <= coreCap
-      ? text
-      : coreCap < separator.length
-        ? (coreCap ? text.slice(-coreCap) : "")
-        : text.slice(0, headLength) + separator + (tailLength ? text.slice(-tailLength) : "");
+    const core = retainMemoryEnds(text, coreCap);
     return [core, index].filter(Boolean).join("\n\n")
       + "\n\n> core 部分内容未注入，请用 memory_read 读取全文 / part of core omitted; use memory_read for the full text.";
   };
@@ -561,13 +553,16 @@ function apply(ctx, config) {
       if (!exists || !full) return { exists: false, bytes: 0, truncated: false, source, topic: resolvedTopic, content: "" };
       const MAX = 20000;
       const truncated = full.length > MAX;
+      const excerpt = index && index.length < MAX
+        ? [retainMemoryEnds(text, MAX - index.length - (text ? 2 : 0)), index].filter(Boolean).join("\n\n")
+        : retainMemoryEnds(full, MAX);
       return {
         exists: true,
         bytes: byteLen(full),
         truncated,
         source,
         topic: resolvedTopic,
-        content: truncated ? `${full.slice(0, MAX)}\n…(truncated; the memory is larger)…` : full,
+        content: truncated ? `${excerpt}\n…(truncated; beginning and end of core retained when layered; use a topic or file read for complete memory)…` : full,
       };
     },
   }));

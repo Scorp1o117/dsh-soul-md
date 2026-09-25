@@ -70,7 +70,7 @@ Then restart `dsh web` and open **Settings → 人设卡**: type a name + conten
 | `memory.maxBytes` | `1048576` | `memory_append` / `memory_rewrite` refuse to exceed this size. |
 | `memory.inject` | `true` | Render the memory as the `soul:memory` prompt section. |
 | `memory.layered` | `false` | Enable progressive disclosure: core plus a topics index. |
-| `memory.injectMaxChars` | `8000` | Cap for injected memory content. Layered mode reserves the topic index first, then retains the beginning and end of core. |
+| `memory.injectMaxChars` | `8000` | Cap for injected memory content. Single-file mode retains the beginning and recent tail. Layered mode reserves the topic index first, then retains both ends of core. `memory_read` also retains both ends when its response exceeds 20,000 characters. |
 | `memory.order` | `0.5` | Prompt section order for the injected memory section. |
 | `skipSubagents` | `false` | Delegated child sessions (DSH marks them `origin: "subagent"`) skip the `soul:persona` / `soul:memory` sections; tool scopes are unchanged. |
 | legacy fields | — | `path`, `fallback`, `order`, `complete`, `watch`, `debounceMs`, `soulMaxBytes`, `personas`, `roster`, `memory.path`… kept so old composition entries and settings still validate; only used for the one-time import. |
@@ -82,7 +82,7 @@ a child usually does one small job and does not need to carry the parent's full 
 It only affects prompt injection: `cardNameOf`, `memoryTarget`, and the scope of the three `memory_*` tools are unchanged,
 so a child reads and writes exactly the same card and memory files it would otherwise (nothing silently falls back to `global.md`).
 
-Compatibility: `@deepseek-ai/dsh@0.1.7-rc.1` is npm `next`; npm `latest` is
+Compatibility: tested with `@deepseek-ai/dsh@0.1.7-rc.1` and `0.1.7-rc.2` (npm `next`); npm `latest` is
 `0.1.5-rc.3`. This version uses Profile patch settings and browser `configForms`.
 Older hosts require an older plugin release. Alpha builds remain `unknown`.
 

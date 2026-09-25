@@ -35,6 +35,20 @@ function renderTopicIndex(topics) {
   ].join("\n");
 }
 
+/** Preserve both old context and recent appends within a character budget. */
+function retainMemoryEnds(text, cap) {
+  const value = String(text ?? "");
+  const limit = Math.max(0, Math.floor(cap));
+  if (value.length <= limit) return value;
+  if (!limit) return "";
+  const separator = "\n…\n";
+  if (limit <= separator.length) return value.slice(-limit);
+  const contentCap = limit - separator.length;
+  const headLength = Math.ceil(contentCap / 2);
+  const tailLength = contentCap - headLength;
+  return value.slice(0, headLength) + separator + (tailLength ? value.slice(-tailLength) : "");
+}
+
 /**
  * Filesystem-backed memory layout. `readText` must return null for a missing
  * file; callers can provide an mtime cache without changing layout semantics.
@@ -125,4 +139,4 @@ function createMemoryLayout(root, readText) {
   return { coreFile, legacyFile, listTopics, readChain, readLayeredScope, scopeDir, topicFile, writeTarget };
 }
 
-export { createMemoryLayout, renderTopicIndex, safeMemoryName, topicDescriptor };
+export { createMemoryLayout, renderTopicIndex, retainMemoryEnds, safeMemoryName, topicDescriptor };

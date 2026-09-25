@@ -51,7 +51,7 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 | `memory.maxBytes` | `1048576` | `memory_append` / `memory_rewrite` 超过此大小会拒绝 |
 | `memory.inject` | `true` | 把记忆渲染为 `soul:memory` 提示词段落 |
 | `memory.layered` | `false` | 启用渐进式分层记忆：core + topics 索引 |
-| `memory.injectMaxChars` | `8000` | 注入记忆内容的字符上限；分层模式先保留主题索引，再保留 core 首尾 |
+| `memory.injectMaxChars` | `8000` | 注入记忆内容的字符上限；单文件模式保留开头与最新尾部，分层模式先保留主题索引，再保留 core 首尾。`memory_read` 超过 20000 字符时也保留首尾。 |
 | `memory.order` | `0.5` | 注入的记忆段落顺序 |
 | `skipSubagents` | `false` | 子代理会话（DSH 标记为 `origin: "subagent"`）不注入 `soul:persona` / `soul:memory` 两段提示词；工具作用域不变 |
 | legacy 字段 | — | `path`、`fallback`、`order`、`complete`、`watch`、`debounceMs`、`soulMaxBytes`、`personas`、`roster`、`memory.path`… 保留以兼容旧配置，仅用于一次性导入 |
@@ -62,7 +62,7 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 它**只作用于提示词注入**：`cardNameOf`、`memoryTarget` 与三个 `memory_*` 工具的作用域完全不变，子代理的读写目标与未开启时一致，
 不会因为跳过注入而落到 `global.md`。
 
-兼容性：适配 `@deepseek-ai/dsh@0.1.7-rc.1`（npm `next`）；npm `latest` 是 `0.1.5-rc.3`。新版使用 Profile patch 与客户端 `configForms`。旧宿主请使用插件旧版；alpha 构建仍标记 `unknown`。
+兼容性：已验证 `@deepseek-ai/dsh@0.1.7-rc.1` 与 `0.1.7-rc.2`（npm `next`）；npm `latest` 是 `0.1.5-rc.3`。新版使用 Profile patch 与客户端 `configForms`。旧宿主请使用插件旧版；alpha 构建仍标记 `unknown`。
 
 ## v0.8.1：人设切换与分层记忆截断修复
 

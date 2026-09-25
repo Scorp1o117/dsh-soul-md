@@ -197,3 +197,38 @@ test("a topic index larger than the cap is reported as incomplete", async (t) =>
   assert.doesNotMatch(injected, /Core text/);
   assert.match(injected, /主题索引未完整注入/);
 });
+
+test("single-file injection and memory_read retain recent appends", async (t) => {
+  const { host, home } = await boot(t, {
+    memory: { inject: true, layered: false, injectMaxChars: 120, maxBytes: 1048576, order: 0.5 },
+  });
+  await writeFile(join(home, "soul-md", "memory", "D.md"),
+    "EARLY " + "x".repeat(21000) + " RECENT APPEND", "utf8");
+
+  const injected = host.sections.get("soul:memory").text(parentAssembly());
+  assert.match(injected, /^EARLY /);
+  assert.match(injected, / RECENT APPEND/);
+  assert.match(injected, /已保留首尾/);
+
+  const read = await host.tools.get("memory_read").execute({}, { agent: agent() });
+  assert.equal(read.truncated, true);
+  assert.match(read.content, /^EARLY /);
+  assert.match(read.content, / RECENT APPEND/);
+  assert.match(read.content, /beginning and end of core retained/);
+});
+
+test("layered memory_read keeps a long core's recent tail before the topic index", async (t) => {
+  const { host, home } = await boot(t, {
+    memory: { inject: true, layered: true, injectMaxChars: 350, maxBytes: 1048576, order: 0.5 },
+  });
+  const root = join(home, "soul-md", "memory", "D");
+  await mkdir(join(root, "topics"), { recursive: true });
+  await writeFile(join(root, "core.md"), "EARLY " + "x".repeat(21000) + " RECENT APPEND", "utf8");
+  await writeFile(join(root, "topics", "project.md"), "# Project\n\nA useful summary.", "utf8");
+
+  const read = await host.tools.get("memory_read").execute({}, { agent: agent() });
+  assert.equal(read.truncated, true);
+  assert.match(read.content, /^EARLY /);
+  assert.match(read.content, / RECENT APPEND\n\n## 主题记忆索引/);
+  assert.match(read.content, /`project` — Project/);
+});
