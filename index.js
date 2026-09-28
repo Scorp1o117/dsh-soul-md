@@ -95,6 +95,8 @@ const Config = z.object({
   fallback: z.string().default(""),
   order: z.number().default(0),
   complete: z.boolean().default(false),
+  /** Opt back into host prompt-variable interpolation for persona and memory text. */
+  allowTemplates: z.boolean().default(false),
   watch: z.boolean().default(true),
   debounceMs: z.number().default(300),
   /** Skip persona + memory injection in delegated child sessions (opt-in; default keeps v0.7 behavior). */
@@ -253,12 +255,14 @@ function apply(ctx, config) {
       name: SECTION_PERSONA,
       order: cfg().order ?? 0,
       text: renderPersona,
+      interpolate: cfg().allowTemplates === true,
       ...(cfg().complete ? { complete: true } : {}),
     });
     sectionDisposers.memory = ctx.systemPrompt.section({
       name: SECTION_MEMORY,
       order: cfg().memory?.order ?? 0.5,
       text: renderMemory,
+      interpolate: cfg().allowTemplates === true,
     });
   }
 

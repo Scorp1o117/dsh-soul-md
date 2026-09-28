@@ -72,6 +72,7 @@ Then restart `dsh web` and open **Settings → 人设卡**: type a name + conten
 | `memory.layered` | `false` | Enable progressive disclosure: core plus a topics index. |
 | `memory.injectMaxChars` | `8000` | Cap for injected memory content. Single-file mode retains the beginning and recent tail. Layered mode reserves the topic index first, then retains both ends of core. `memory_read` also retains both ends when its response exceeds 20,000 characters. |
 | `memory.order` | `0.5` | Prompt section order for the injected memory section. |
+| `allowTemplates` | `false` | Keep `{{…}}` literal in persona cards and memory by default; when enabled, the host interpolates prompt variables and unknown variables fail rendering. |
 | `skipSubagents` | `false` | Delegated child sessions (DSH marks them `origin: "subagent"`) skip the `soul:persona` / `soul:memory` sections; tool scopes are unchanged. |
 | legacy fields | — | `path`, `fallback`, `order`, `complete`, `watch`, `debounceMs`, `soulMaxBytes`, `personas`, `roster`, `memory.path`… kept so old composition entries and settings still validate; only used for the one-time import. |
 
@@ -113,8 +114,10 @@ Older hosts require an older plugin release. Alpha builds remain `unknown`.
 
 ## Notes
 
-- **Never write `{{` / `}}` in a card body** — they are prompt-variable
-  syntax; unknown variables fail rendering (no escape syntax yet).
+- **Since v0.8.5, braces stay literal by default** in persona cards and memory.
+  If an existing card relies on host variables such as `{{cwd}}`, enable
+  **Allow prompt variables in persona and memory** (`allowTemplates: true`) in
+  settings. Unknown variables still fail rendering in that mode.
 - Persona/memory sections resolve per assembly, so steady cards stay
   byte-identical (KV-cache friendly) and edits hot-apply.
 - DSH exposes the registered `soul-md` settings namespace directly; the plugin

@@ -53,6 +53,7 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 | `memory.layered` | `false` | 启用渐进式分层记忆：core + topics 索引 |
 | `memory.injectMaxChars` | `8000` | 注入记忆内容的字符上限；单文件模式保留开头与最新尾部，分层模式先保留主题索引，再保留 core 首尾。`memory_read` 超过 20000 字符时也保留首尾。 |
 | `memory.order` | `0.5` | 注入的记忆段落顺序 |
+| `allowTemplates` | `false` | 默认将人设卡和记忆中的 `{{…}}` 原样注入；开启后由宿主解析提示词变量，未知变量会使渲染失败 |
 | `skipSubagents` | `false` | 子代理会话（DSH 标记为 `origin: "subagent"`）不注入 `soul:persona` / `soul:memory` 两段提示词；工具作用域不变 |
 | legacy 字段 | — | `path`、`fallback`、`order`、`complete`、`watch`、`debounceMs`、`soulMaxBytes`、`personas`、`roster`、`memory.path`… 保留以兼容旧配置，仅用于一次性导入 |
 
@@ -107,7 +108,7 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 
 ## 注意事项
 
-- **不要在人设文本里写 `{{` / `}}`**：它们是提示词变量语法，未知变量会在渲染时报错（目前没有转义语法）。
+- **v0.8.5 起默认保留花括号原文**：人设卡和记忆里的 `{{demo}}` 不再触发宿主插值。若旧卡片依赖 `{{cwd}}` 等宿主变量，请在设置页开启「允许人设与记忆使用提示词变量」（`allowTemplates: true`）；开启后未知变量仍会使渲染失败。
 - 人设/记忆段落按组装解析：稳定卡片字节不变（KV Cache 友好），编辑即时生效。
 - DSH 会直接公开插件注册的 `soul-md` settings 命名空间；插件不会修改宿主安装目录中的文件。
 - 建议在人设卡里写清工作准则（如"任务质量优先"），避免角色扮演影响干活质量。

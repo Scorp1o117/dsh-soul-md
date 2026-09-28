@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { renderPrompt } from "@deepseek-ai/dsh-system-prompt";
 
 const CARD_BODY = "persona card body";
 const CORE_BODY = "# core\n\nresident memory body.";
@@ -129,6 +130,40 @@ test("default: a delegated child still receives persona and memory", async (t) =
 
   assert.equal(host.sections.get("soul:persona").text(assembly("subagent")), CARD_BODY);
   assert.match(host.sections.get("soul:memory").text(assembly("subagent")), /resident memory body/);
+});
+
+test("persona and memory preserve literal prompt references by default", async (t) => {
+  const { host, home } = await boot(t, { cards: { D: "card {{demo}}" } });
+  await writeFile(join(home, "soul-md", "memory", "D.md"), "memory {{demo}}", "utf8");
+
+  const persona = host.sections.get("soul:persona");
+  const memory = host.sections.get("soul:memory");
+  assert.equal(persona.interpolate, false);
+  assert.equal(memory.interpolate, false);
+  const prompt = renderPrompt({
+    sections: [persona, memory].map(({ name, text, interpolate }) => ({
+      name, text: text(parentAssembly()), interpolate,
+    })),
+    variables: {},
+  });
+  assert.equal(prompt, "card {{demo}}\n\nmemory {{demo}}");
+});
+
+test("allowTemplates explicitly restores host variable interpolation", async (t) => {
+  const { host, home } = await boot(t, {
+    allowTemplates: true,
+    cards: { D: "card {{cwd}}" },
+  });
+  await writeFile(join(home, "soul-md", "memory", "D.md"), "memory {{cwd}}", "utf8");
+
+  const sections = ["soul:persona", "soul:memory"].map((name) => {
+    const spec = host.sections.get(name);
+    assert.equal(spec.interpolate, true);
+    return { name, text: spec.text(parentAssembly()), interpolate: spec.interpolate };
+  });
+  assert.equal(renderPrompt({ sections, variables: { cwd: "C:\\work" } }),
+    "card C:\\work\n\nmemory C:\\work");
+  assert.throws(() => renderPrompt({ sections, variables: {} }), /unknown prompt variable/);
 });
 
 test("skipSubagents: the child gets neither section, the parent keeps both", async (t) => {
