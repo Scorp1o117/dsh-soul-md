@@ -31,6 +31,17 @@ Persona + long-term memory for [DeepSeek Harness](https://github.com/deepseek-ai
 - **Resolution** per prompt assembly: `session choice (chat switcher) > workspace mapping > default card > none`. Switching applies from the next turn — no restart.
 - **Workspace personas (v0.5.2)**: Settings → 人设卡 lists every workspace with a card dropdown — sessions of that workspace use the assigned card by default (session-level switching still wins). Workspaces come from dsh's durable workspace registry, so no paths to type.
 
+## Desktop install
+
+Use the Desktop-installed `dsh` command (Application → Manage dsh Command), or the app’s Plugins page. Then install into the Desktop profile:
+
+```powershell
+dsh plugin --profile desktop add dsh-soul-md@0.8.6
+```
+
+Restart the Desktop app to load the client bundle. Desktop keeps its profile under `$DSH_HOME/profiles/desktop`.
+
+
 ## Install
 
 The plugin is a plain Cordis row. Mount it in a profile patch

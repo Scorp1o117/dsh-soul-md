@@ -20,6 +20,17 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 - **解析规则**：`会话选择（聊天框切换）> 工作区人设 > 默认卡 > 无`，切换下一轮对话即生效，无需重启
 - **工作区人设（v0.5.2）**：设置 → 人设卡 里会列出所有工作区，每个工作区可以指定一张人设卡——该工作区的会话默认用它（会话级切换仍然优先）。工作区列表来自 dsh 的工作区注册表，不用输任何路径
 
+## 桌面端安装
+
+在桌面端的“插件”页面安装，或使用桌面端“应用 → 管理 dsh 命令”注册的命令：
+
+```powershell
+dsh plugin --profile desktop add dsh-soul-md@0.8.6
+```
+
+重启桌面端以加载客户端插件。配置位于 `$DSH_HOME/profiles/desktop`。
+
+
 ## 安装
 
 在 profile 的 `cordis.patch.yml`（如 `$DSH_HOME/profiles/web/cordis.patch.yml`）里 insert：
