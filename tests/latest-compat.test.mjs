@@ -7,8 +7,8 @@ const manifest = JSON.parse(await readFile(new URL("../package.json", import.met
 test("manifest records the verified latest and next hosts and keeps alpha unclaimed", () => {
   assert.equal(manifest.dsh.compatibility.dshReleases["0.1.5-rc.2"], "incompatible");
   assert.equal(manifest.dsh.compatibility.dshReleases["0.1.5-rc.3"], "incompatible");
-  assert.equal(manifest.dsh.compatibility.dshReleases["0.1.7-rc.1"], "compatible");
-  assert.equal(manifest.dsh.compatibility.dshReleases["0.1.7-rc.2"], "compatible");
+  assert.equal(manifest.dsh.compatibility.dshReleases["0.1.7-rc.1"], "incompatible");
+  assert.equal(manifest.dsh.compatibility.dshReleases["0.1.7-rc.2"], "incompatible");
   assert.equal(manifest.dsh.compatibility.dshReleases["0.2.0-rc.2"], "compatible");
   assert.equal(manifest.dsh.compatibility.dshReleases["0.1.6-alpha.1"], "unknown");
   assert.equal(manifest.dsh.compatibility.dshReleases["0.1.6-alpha.2"], "unknown");
@@ -25,6 +25,6 @@ test("next host seams are pinned for repeatable development tests", () => {
     "@deepseek-ai/dsh-tools",
   ]) {
     assert.equal(manifest.devDependencies[name], "0.2.0-rc.2");
-    assert.equal(manifest.peerDependencies[name], "^0.1.7-rc.1 || 0.2.0-rc.2");
+    assert.equal(manifest.peerDependencies[name], ">=0.2.0-rc.2 <0.3.0");
   }
 });

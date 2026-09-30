@@ -1,5 +1,9 @@
 # dsh-soul-md
 
+## 配置入口（DSH 0.2.0-rc.2 起）
+
+在首页侧边栏打开 **插件 → 已安装 → dsh-soul-md**，直接在插件详情页配置并保存。配置页注册到官方的 `plugins.bundle.config` 接口；全局设置页不再重复显示配置入口。Web 与桌面版使用相同界面，本版要求 DSH 0.2.0-rc.2 或更新的 0.2.x 版本。现有配置无需迁移。
+
 **GitHub**: [Scorp1o117/dsh-soul-md](https://github.com/Scorp1o117/dsh-soul-md) · **npm**: [dsh-soul-md](https://www.npmjs.com/package/dsh-soul-md) · [English](README.md)
 
 [![Enhancement Suite](https://img.shields.io/badge/part%20of-Enhancement%20Suite-3964fe)](https://github.com/Scorp1o117/dsh-enhancement-suite) [![npm](https://img.shields.io/npm/v/dsh-enhancement-suite)](https://www.npmjs.com/package/dsh-enhancement-suite)
@@ -8,7 +12,7 @@
 
 DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**：
 
-> 在 设置 → 人设卡 里输入人设卡的**名称**和**内容**，点保存，剩下的插件全包了。
+> 在 插件 → dsh-soul-md 里输入人设卡的**名称**和**内容**，点保存，剩下的插件全包了。
 
 ## 功能
 
@@ -18,7 +22,7 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
   - `soul_read` / `soul_update`：AI 自己读、自己**演化人设卡**——发现自己的稳定特质就折叠进卡片，跨会话**持续成长**而不是每次重置
   - 记忆会以 `soul:memory` 段落注入提示词（有上限），AI 随时看得见自己的记忆
 - **解析规则**：`会话选择（聊天框切换）> 工作区人设 > 默认卡 > 无`，切换下一轮对话即生效，无需重启
-- **工作区人设（v0.5.2）**：设置 → 人设卡 里会列出所有工作区，每个工作区可以指定一张人设卡——该工作区的会话默认用它（会话级切换仍然优先）。工作区列表来自 dsh 的工作区注册表，不用输任何路径
+- **工作区人设（v0.5.2）**：插件 → dsh-soul-md 里会列出所有工作区，每个工作区可以指定一张人设卡——该工作区的会话默认用它（会话级切换仍然优先）。工作区列表来自 dsh 的工作区注册表，不用输任何路径
 
 ## 桌面端安装
 
@@ -41,7 +45,7 @@ dsh plugin --profile desktop add dsh-soul-md@0.8.6
       name: 'dsh-soul-md'          # 之前先 pnpm add dsh-soul-md
 ```
 
-重启 `dsh web`，打开 **设置 → 人设卡**：输入名称 + 内容，保存，完事。
+重启 `dsh web`，打开 **插件 → dsh-soul-md**：输入名称 + 内容，保存，完事。
 
 ## 文件在哪（你不用管，仅供参考）
 

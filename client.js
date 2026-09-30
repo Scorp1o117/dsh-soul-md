@@ -580,12 +580,10 @@ window.__ModuleLoader__.load({
       // a revision the other had already superseded — the Host refuses the stale
       // write and the scope still settles it as success.
       var scope = ctx.configForms.get("soul-md");
-      ctx.slots.inject("settings.section", function () {
+      ctx.slots.inject("plugins.bundle.config", function () {
         return ctx.slots.register({
-          name: "settings.section",
-          id: "soul-md",
-          order: 24,
-          label: function () { return t("nav"); },
+          name: "plugins.bundle.config",
+          key: "dsh-soul-md",
           locale: NS
         }, function (props) {
           return h(SoulSection, Object.assign({}, props, { scope: scope }));
