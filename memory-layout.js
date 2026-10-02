@@ -12,7 +12,7 @@ function safeMemoryName(value, fallback = "memory") {
 function topicDescriptor(key, text) {
   const lines = String(text ?? "").split(/\r?\n/);
   const heading = lines.find((line) => /^#{1,6}\s+\S/.test(line.trim()));
-  const title = heading ? heading.trim().replace(/^#{1,6}\s+/, "").trim() : key;
+  const title = (heading ? heading.trim().replace(/^#{1,6}\s+/, "").trim() : key).slice(0, 80);
   const summaryLine = lines.find((line) => {
     const value = line.trim();
     return value && !/^#{1,6}\s+/.test(value) && !/^<!--/.test(value);
@@ -21,6 +21,14 @@ function topicDescriptor(key, text) {
     ? summaryLine.trim().replace(/^[-*>]\s*/, "").replace(/\s+/g, " ").slice(0, 240)
     : "（无摘要 / no summary）";
   return { key, title, summary };
+}
+
+/** Reserve core aliases after the same normalization used for topic paths. */
+function normalizeMemoryTopic(value) {
+  const topic = String(value ?? "").trim();
+  if (!topic) return "";
+  const key = safeMemoryName(topic, "topic");
+  return /^(core|core\.md)$/i.test(key) ? "" : key;
 }
 
 function renderTopicIndex(topics) {
@@ -97,6 +105,7 @@ function createMemoryLayout(root, readText) {
   };
 
   const readChain = (scopes, { layered = false, topic = "" } = {}) => {
+    topic = normalizeMemoryTopic(topic);
     const chain = [...new Set(scopes)];
     if (!layered) {
       for (const scope of chain) {
@@ -128,6 +137,7 @@ function createMemoryLayout(root, readText) {
   };
 
   const writeTarget = (scope, { layered = false, topic = "" } = {}) => {
+    topic = normalizeMemoryTopic(topic);
     if (!layered) return { file: legacyFile(scope), legacySeed: null, topic: "" };
     if (topic) {
       const key = safeMemoryName(topic, "topic");
@@ -139,4 +149,4 @@ function createMemoryLayout(root, readText) {
   return { coreFile, legacyFile, listTopics, readChain, readLayeredScope, scopeDir, topicFile, writeTarget };
 }
 
-export { createMemoryLayout, renderTopicIndex, retainMemoryEnds, safeMemoryName, topicDescriptor };
+export { createMemoryLayout, normalizeMemoryTopic, renderTopicIndex, retainMemoryEnds, safeMemoryName, topicDescriptor };

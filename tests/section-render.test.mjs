@@ -132,6 +132,21 @@ test("default: a delegated child still receives persona and memory", async (t) =
   assert.match(host.sections.get("soul:memory").text(assembly("subagent")), /resident memory body/);
 });
 
+test("memory tools append/read/rewrite core aliases and inject the resulting core", async (t) => {
+  const { host, home } = await boot(t, {
+    memory: { inject: true, layered: true, injectMaxChars: 8000, maxBytes: 1048576 },
+  });
+  const exec = { agent: agent() };
+  const appended = await host.tools.get("memory_append").execute({ topic: " CORE.md ", section: "identity", content: "old identity retired" }, exec);
+  assert.equal(appended.topic, "");
+  assert.equal(existsSync(join(home, "soul-md", "memory", "D", "topics", "core.md")), false);
+  assert.match((await host.tools.get("memory_read").execute({ topic: "core" }, exec)).content, /old identity retired/);
+  assert.match(host.sections.get("soul:memory").text(parentAssembly()), /old identity retired/);
+  const rewritten = await host.tools.get("memory_rewrite").execute({ topic: "core.md", content: "replacement identity" }, exec);
+  assert.equal(rewritten.topic, "");
+  assert.equal((await host.tools.get("memory_read").execute({}, exec)).content, "replacement identity");
+});
+
 test("persona and memory preserve literal prompt references by default", async (t) => {
   const { host, home } = await boot(t, { cards: { D: "card {{demo}}" } });
   await writeFile(join(home, "soul-md", "memory", "D.md"), "memory {{demo}}", "utf8");

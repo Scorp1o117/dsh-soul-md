@@ -36,7 +36,7 @@ import { isAbsolute, join, dirname } from "node:path";
 import z from "@deepseek-ai/schemastery";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { createMemoryLayout, retainMemoryEnds } from "./memory-layout.js";
+import { createMemoryLayout, normalizeMemoryTopic, retainMemoryEnds } from "./memory-layout.js";
 import { skipsSubagentSections } from "./subagents.js";
 
 /** Cordis plugin name. */
@@ -474,7 +474,7 @@ function apply(ctx, config) {
     parameters: {
       section: { type: "string", required: true, description: "Short heading for the entry, e.g. 用户偏好 / project decision. Use a stable name so related entries group together." },
       content: { type: "string", required: true, description: "The markdown text to remember. Keep it concise and self-contained." },
-      topic: { type: "string", description: "Optional topic key in layered mode. Omit for core.md; e.g. project-foo writes topics/project-foo.md." },
+      topic: { type: "string", description: "Optional topic key in layered mode. Omit or pass core/core.md for core.md; e.g. project-foo writes topics/project-foo.md." },
     },
     output: {
       schema: {
@@ -494,7 +494,7 @@ function apply(ctx, config) {
       const content = String(args.content ?? "").trim();
       if (!content) throw new Error("memory_append: `content` must be non-empty");
       const section = String(args.section ?? "").trim();
-      const topic = String(args.topic ?? "").trim();
+      const topic = normalizeMemoryTopic(args.topic);
       if (topic && !cfg().memory?.layered) {
         throw new Error("memory_append: `topic` requires memory.layered to be enabled");
       }
@@ -524,7 +524,7 @@ function apply(ctx, config) {
     description:
       "Read your long-term memory back. The reader walks your CURRENT scope chain: the active persona card's memory, else global memory. In layered mode, omit topic to read core memory plus the topic index, then pass a topic key to retrieve that topic's full text on demand.",
     parameters: {
-      topic: { type: "string", description: "Optional topic key to read in layered mode. Omit to read core memory plus the topic index." },
+      topic: { type: "string", description: "Optional topic key to read in layered mode. Omit or pass core/core.md to read core memory plus the topic index." },
     },
     output: {
       schema: {
@@ -548,7 +548,7 @@ function apply(ctx, config) {
     },
     isConcurrencySafe: () => true,
     async execute(args, exec) {
-      const topic = String(args.topic ?? "").trim();
+      const topic = normalizeMemoryTopic(args.topic);
       if (topic && !cfg().memory?.layered) {
         throw new Error("memory_read: `topic` requires memory.layered to be enabled");
       }
@@ -577,7 +577,7 @@ function apply(ctx, config) {
       "REPLACE one memory file in your CURRENT scope. In layered mode, omit topic for always-visible core.md or pass a topic key for topics/<topic>.md. Use for consolidation: merge, deduplicate and reorganize entries. Build the new content from memory_read output unless you deliberately drop entries. Pass an empty string to clear the selected file.",
     parameters: {
       content: { type: "string", required: true, description: "The new full content of the memory file (markdown)." },
-      topic: { type: "string", description: "Optional topic key in layered mode. Omit to replace core.md." },
+      topic: { type: "string", description: "Optional topic key in layered mode. Omit or pass core/core.md to replace core.md." },
     },
     output: {
       schema: {
@@ -594,7 +594,7 @@ function apply(ctx, config) {
     isConcurrencySafe: () => false,
     async execute(args, exec) {
       const content = String(args.content ?? "");
-      const topic = String(args.topic ?? "").trim();
+      const topic = normalizeMemoryTopic(args.topic);
       if (topic && !cfg().memory?.layered) {
         throw new Error("memory_rewrite: `topic` requires memory.layered to be enabled");
       }

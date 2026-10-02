@@ -24,6 +24,39 @@ test("topic metadata uses the first heading and first body line", () => {
   assert.match(renderTopicIndex([{ key: "project-a", title: "Project A", summary: "Launch notes" }]), /memory_read\(topic\)/);
 });
 
+test("topic titles and summaries stay bounded without collapsing shared prefixes", () => {
+  const prefix = "长".repeat(80);
+  const a = topicDescriptor("a", `# ${prefix}A\n${prefix}B${"s".repeat(300)}`);
+  const b = topicDescriptor("b", `# ${prefix}B\n${prefix}A`);
+  assert.equal(a.title.length, 80);
+  assert.equal(a.summary.length, 240);
+  const index = renderTopicIndex([a, b]);
+  assert.ok(index.includes(`- \`a\` — ${prefix}：${a.summary}`));
+  assert.ok(index.includes(`- \`b\` — ${prefix}：${b.summary}`));
+  assert.equal(renderTopicIndex([topicDescriptor("same", "# Short\nShort")]).split("\n").at(-1), "- `same` — Short");
+});
+
+test("core aliases route both reads and writes to resident memory, preserving old topic files", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-soul-md-core-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const layout = createMemoryLayout(root, readText);
+  await mkdir(join(root, "D", "topics"), { recursive: true });
+  await writeFile(layout.coreFile("D"), "resident", "utf8");
+  await writeFile(layout.topicFile("D", "core"), "old accidental topic", "utf8");
+  for (const topic of ["core", "core.md", " CORE.MD ", "core."]) {
+    const target = layout.writeTarget("D", { layered: true, topic });
+    assert.equal(target.file, layout.coreFile("D"));
+    assert.equal(target.topic, "");
+    assert.equal(target.legacySeed, layout.legacyFile("D"));
+    const read = layout.readChain(["D", "global"], { layered: true, topic });
+    assert.equal(read.text, "resident");
+    assert.equal(read.file, target.file);
+    assert.match(read.index, /`core`/);
+  }
+  assert.equal(readText(layout.topicFile("D", "core")), "old accidental topic");
+  assert.equal(layout.writeTarget("D", { layered: true, topic: "core-notes" }).topic, "core-notes");
+});
+
 test("layered memory injects core plus topic index and reads topics on demand", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "dsh-soul-md-layered-"));
   t.after(() => rm(root, { recursive: true, force: true }));

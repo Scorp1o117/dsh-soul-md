@@ -1,5 +1,11 @@
 # dsh-soul-md
 
+## v0.9.1: resident memory aliases and bounded index titles
+
+- All three `memory_*` tools treat `topic: "core"` / `"core.md"` (case-insensitive, surrounding whitespace ignored) as an omitted topic, reading/writing resident core memory. Other topics keep their existing behavior.
+- Index titles are capped at 80 characters and summaries at 240; topic keys remain distinct and full files are unchanged.
+- Existing `topics/core.md` files are preserved without automatic merging. Back them up, inspect them with a file reader, merge resident entries into `core.md`, and rename remaining topic content to another key. New `memory_read({ topic: "core" })` calls read resident core.
+
 ## Configuration page (DSH 0.2.0-rc.2 and later)
 
 Open **Plugins → Installed → dsh-soul-md** from the homepage sidebar to configure and save this plugin. The page uses the official `plugins.bundle.config` interface, without a duplicate entry in global Settings. Web and Desktop share the page. This version requires DSH 0.2.0-rc.2 or a later 0.2.x host; existing configuration is retained.
