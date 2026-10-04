@@ -1,5 +1,7 @@
 # dsh-soul-md
 
+The plugin follows the DSH language setting (Chinese and English in DSH 0.2.0-rc.2), including configuration, status messages and plugin-list metadata. Language-pack locales use the host fallback chain. Switching languages preserves unsaved settings; there is no separate plugin language selector.
+
 ## v0.9.1: resident memory aliases and bounded index titles
 
 - All three `memory_*` tools treat `topic: "core"` / `"core.md"` (case-insensitive, surrounding whitespace ignored) as an omitted topic, reading/writing resident core memory. Other topics keep their existing behavior.

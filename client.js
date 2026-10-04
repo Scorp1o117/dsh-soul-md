@@ -140,6 +140,9 @@ window.__ModuleLoader__.load({
     }
     var zh = {
       nav: "人设卡",
+      confirmDelete: '删除人设卡“{name}”？',
+      invalidCardName: "请输入人设卡名称",
+      invalidCardContent: "请输入人设卡内容",
       intro: "输入人设卡名称和内容，保存后插件自动管理——文件路径、记忆存放都不用管。人设按 会话选择 → 默认卡 解析，聊天框标题栏可随时切换。",
       cardListTitle: "人设卡",
       cardListHint: "卡片内容会注入系统提示词；聊天框标题栏可给每个会话单独选卡。",
@@ -190,6 +193,9 @@ window.__ModuleLoader__.load({
     };
     var en = {
       nav: "Persona Card",
+      confirmDelete: 'Delete persona card "{name}"?',
+      invalidCardName: "Enter a persona card name",
+      invalidCardContent: "Enter persona card content",
       intro: "Type a persona card name and content, hit save — the plugin manages everything else (files, memory locations). Persona resolves as session choice > default card; switch per chat from the conversation header.",
       cardListTitle: "Persona cards",
       cardListHint: "Card content is injected into the system prompt; pick one per chat from the conversation header.",
@@ -248,6 +254,7 @@ window.__ModuleLoader__.load({
     var MEMORY_DEFAULTS = { inject: true, layered: false, injectMaxChars: 8000, maxBytes: 1048576 };
 
     function SoulSection(props) {
+      useLocale(props.locale);
       var t = props.t;
       var scope = props.scope;
       var [snapshot, setSnapshot] = react.useState(function () { return scope.getSnapshot(); });
@@ -306,17 +313,17 @@ window.__ModuleLoader__.load({
           setBusy(false);
           setSnapshot(scope.getSnapshot());
           if (!ok) {
-            setError(t("error") + "：" + t("notApplied"));
+            setError({ key: "error", detailKey: "notApplied" });
             setMemDraft(function () { return {}; });
             setSkipDraft(null);
             return;
           }
-          setNotice(t("saved"));
+          setNotice({ key: "saved" });
           if (onOk) onOk();
         }).catch(function (e) {
           writePending.current = false;
           setBusy(false); setSnapshot(scope.getSnapshot());
-          setError(t("error") + ": " + String(e && e.message || e));
+          setError({ key: "error", detail: String(e && e.message || e) });
         });
       }
 
@@ -330,8 +337,8 @@ window.__ModuleLoader__.load({
       function onSaveCard() {
         var name = String(cardDraft.name || "").trim();
         var content = String(cardDraft.content || "");
-        if (!name) { setError(t("error") + ": name"); return; }
-        if (!content.trim()) { setError(t("error") + ": content"); return; }
+        if (!name) { setError({ key: "error", detailKey: "invalidCardName" }); return; }
+        if (!content.trim()) { setError({ key: "error", detailKey: "invalidCardContent" }); return; }
         var next = Object.assign({}, cards);
         next[name] = content;
         runWrite([{ op: "set", path: ["cards"], value: next }], function () {
@@ -345,7 +352,7 @@ window.__ModuleLoader__.load({
       }
 
       function onDeleteCard(name) {
-        if (!window.confirm("Delete persona card \"" + name + "\"?")) return;
+        if (!window.confirm(t("confirmDelete", { name: name }))) return;
         var next = Object.assign({}, cards);
         delete next[name];
         // Deleting the active card also clears `active`. Both edits go in ONE
@@ -395,14 +402,14 @@ window.__ModuleLoader__.load({
       }
       function onSaveMemory() {
         var next = memNext();
-        if (!next) { setError(t("error") + "：" + t("invalidMemoryNumber")); return; }
+        if (!next) { setError({ key: "error", detailKey: "invalidMemoryNumber" }); return; }
         var base = memBase();
         var nextSkip = skipValue();
         var baseSkip = Boolean(value.skipSubagents);
         var nextTemplates = templatesValue();
         var baseTemplates = Boolean(value.allowTemplates);
         if (JSON.stringify(next) === JSON.stringify(base) && nextSkip === baseSkip && nextTemplates === baseTemplates) {
-          setBusy(false); setNotice(t("saved"));
+          setBusy(false); setNotice({ key: "saved" });
           return;
         }
         var ops = [];
@@ -429,9 +436,9 @@ window.__ModuleLoader__.load({
           ),
           h("div", { className: "__sm_actions" },
             h("button", { type: "button", className: "__sm_btn __sm_btnPrimary", onClick: onSaveCard, disabled: busy }, t("saveCard")),
-            notice ? h("span", { className: "__sm_status" }, notice) : null,
+            notice ? h("span", { className: "__sm_status" }, messageText(t, notice)) : null,
             busy ? h("span", { className: "__sm_status" }, t("saving")) : null,
-            error ? h("span", { className: "__sm_error" }, error) : null
+            error ? h("span", { className: "__sm_error" }, messageText(t, error)) : null
           )
         ),
 
@@ -484,7 +491,7 @@ window.__ModuleLoader__.load({
                   );
                 })
               ),
-          error ? h("span", { className: "__sm_error", role: "alert" }, error) : null
+          error ? h("span", { className: "__sm_error", role: "alert" }, messageText(t, error)) : null
         ),
 
         // ── memory (plugin-managed) ──────────────────────────────────────
@@ -523,9 +530,9 @@ window.__ModuleLoader__.load({
           }),
           h("div", { className: "__sm_actions" },
             h("button", { type: "button", className: "__sm_btn __sm_btnPrimary", onClick: onSaveMemory, disabled: busy }, t("save")),
-            notice ? h("span", { className: "__sm_status" }, notice) : null,
+            notice ? h("span", { className: "__sm_status" }, messageText(t, notice)) : null,
             busy ? h("span", { className: "__sm_status" }, t("saving")) : null,
-            error ? h("span", { className: "__sm_error" }, error) : null
+            error ? h("span", { className: "__sm_error" }, messageText(t, error)) : null
           )
         )
       );
@@ -533,6 +540,7 @@ window.__ModuleLoader__.load({
 
     // ── per-session persona switcher (conversation header) ──────────────────
     function PersonaSwitcher(props) {
+      useLocale(props.locale);
       var t = props.t;
       var scope = props.scope;
       var sessionId = props.sessionId;
@@ -575,12 +583,12 @@ window.__ModuleLoader__.load({
           writePending.current = false;
           setBusy(false);
           setSnapshot(scope.getSnapshot());
-          if (!ok) setError(t("error") + "：" + t("notApplied"));
+          if (!ok) setError({ key: "error", detailKey: "notApplied" });
         }).catch(function (e) {
           writePending.current = false;
           setBusy(false);
           setSnapshot(scope.getSnapshot());
-          setError(t("error") + ": " + String(e && e.message || e));
+          setError({ key: "error", detail: String(e && e.message || e) });
         });
       }
       return h("label", { className: "__sm_switch", title: t("switchTitle") },
@@ -592,11 +600,26 @@ window.__ModuleLoader__.load({
             return h("option", { key: n, value: n }, n);
           })
         ),
-        error ? h("span", { className: "__sm_error", role: "alert" }, error) : null
+        error ? h("span", { className: "__sm_error", role: "alert" }, messageText(t, error)) : null
       );
     }
 
     // ── plugin ────────────────────────────────────────────────────────────
+
+    // Follow the host language without remounting the form or losing drafts.
+    function useLocale(locale) {
+      var refresh = react.useState(0)[1];
+      react.useEffect(function () {
+        if (!locale || typeof locale.subscribe !== "function") return;
+        return locale.subscribe(function () { refresh(function (revision) { return revision + 1; }); });
+      }, [locale]);
+    }
+    // Keep translation keys in state so feedback follows later language changes.
+    function messageText(t, message) {
+      if (!message) return "";
+      return t(message.key) + (message.detailKey ? ": " + t(message.detailKey) : message.detail ? ": " + message.detail : "");
+    }
+
     function apply(ctx) {
       var t = ctx.locale.bind(NS);
       ctx.effect(function () { return ctx.locale.register(NS, { zh: zh, en: en }); }, "dsh-soul-md: dictionaries");
@@ -613,7 +636,7 @@ window.__ModuleLoader__.load({
           key: "dsh-soul-md",
           locale: NS
         }, function (props) {
-          return h(SoulSection, Object.assign({}, props, { scope: scope }));
+          return h(SoulSection, Object.assign({}, props, { scope: scope, t: t, locale: ctx.locale }));
         });
       });
       ctx.slots.inject("conversation.session.header.actions", function () {
@@ -622,7 +645,7 @@ window.__ModuleLoader__.load({
           id: "soul-md-persona",
           order: 40
         }, function (props) {
-          return h(PersonaSwitcher, Object.assign({}, props, { scope: scope, t: t }));
+          return h(PersonaSwitcher, Object.assign({}, props, { scope: scope, t: t, locale: ctx.locale }));
         });
       });
     }

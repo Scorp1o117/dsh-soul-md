@@ -14,8 +14,8 @@ test('one scope serves the namespace, not one per surface', () => {
   const binds = clientSource.match(/ctx\.configForms\.get\(/g) ?? [];
   assert.equal(binds.length, 1, `expected a single bind, found ${binds.length}`);
   assert.match(clientSource, /var scope = ctx\.configForms\.get\("soul-md"\)/);
-  assert.match(clientSource, /\{ scope: scope \}/);
-  assert.match(clientSource, /\{ scope: scope, t: t \}/);
+  assert.match(clientSource, /\{ scope: scope, t: t, locale: ctx.locale \}/);
+  assert.match(clientSource, /\{ scope: scope, t: t, locale: ctx.locale \}/);
 });
 
 test('no component writes through an unverified path', () => {
@@ -36,7 +36,7 @@ test('no component writes through an unverified path', () => {
 test('every mutation is verified against the namespace section', () => {
   assert.match(clientSource, /function settingsOpsApplied\(snapshot, ops\)/);
   assert.match(clientSource, /return settingsOpsApplied\(scope\.getSnapshot\(\), ops\)/);
-  assert.match(clientSource, /t\("notApplied"\)/);
+  assert.match(clientSource, /detailKey: "notApplied"/);
   // the guarded refresh was dead code: the scope's public seam has no load()
   const guards = clientSource.match(/typeof scope\.load === "function"/g) ?? [];
   assert.equal(guards.length, 0, `dead load() guards remain: ${guards.length}`);
