@@ -44,6 +44,33 @@ window.__ModuleLoader__.load({
       ".__sm_switch{display:inline-flex;align-items:center;gap:6px;font-size:12px;margin-right:8px}" +
       ".__sm_switchLabel{color:var(--dsw-alias-label-tertiary);white-space:nowrap}" +
       ".__sm_switchSelect{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);border-radius:8px;padding:3px 6px;font:inherit;font-size:12px;max-width:180px}";
+    // Scoped flat controls retain native keyboard and form behavior.
+    CSS += `
+.dsh-flat.__sm_root{width:100%;max-width:720px;gap:14px;font-size:13px;line-height:1.65;color:var(--dsw-alias-label-primary);--flat-accent:var(--dsw-alias-state-business-primary,#3964fe);--flat-border:var(--dsw-alias-border-l2,#dce2eb)}
+.dsh-flat.__sm_root *{box-sizing:border-box;min-width:0}
+.dsh-flat.__sm_root p{margin:0}
+.dsh-flat.__sm_root label[class$="_field"]{gap:7px}
+.dsh-flat.__sm_root [class$="_label"]{font-size:13px;font-weight:500}
+.dsh-flat.__sm_root [class$="_hint"]{font-size:12px;line-height:1.65}
+.dsh-flat.__sm_root input:not([type=checkbox]),.dsh-flat.__sm_root select,.dsh-flat.__sm_root textarea{width:100%;border:1px solid var(--flat-border);border-radius:6px;background:var(--dsw-alias-bg-layer-3);color:inherit;font:inherit;padding:9px 12px;min-height:40px;box-shadow:none;transition:border-color .15s}
+.dsh-flat.__sm_root input:hover:not(:disabled),.dsh-flat.__sm_root select:hover:not(:disabled),.dsh-flat.__sm_root textarea:hover:not(:disabled){border-color:var(--dsw-alias-label-tertiary)}
+.dsh-flat.__sm_root select{appearance:none;padding-right:34px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m2 2 4 4 4-4' fill='none' stroke='%23778091' stroke-width='1.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+.dsh-flat.__sm_root input[type=checkbox]{appearance:none;flex:none;width:30px;height:18px;margin:0;border:1px solid var(--flat-border);border-radius:12px;background:var(--dsw-alias-bg-layer-2);position:relative;cursor:pointer;transition:background .15s,border-color .15s}
+.dsh-flat.__sm_root input[type=checkbox]::before{content:"";position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:var(--dsw-alias-label-secondary);transition:transform .15s}
+.dsh-flat.__sm_root input[type=checkbox]:checked{background:var(--flat-accent);border-color:var(--flat-accent)}
+.dsh-flat.__sm_root input[type=checkbox]:checked::before{transform:translateX(12px);background:#fff}
+.dsh-flat.__sm_root :is(input,select,textarea,button,summary,a):focus-visible{outline:2px solid var(--flat-accent);outline-offset:3px}
+.dsh-flat.__sm_root :is(input,select,textarea,button):disabled{opacity:.5;cursor:default}
+.dsh-flat.__sm_root [class$="_actions"]{flex-wrap:wrap;gap:10px;margin-top:4px;padding-top:16px;border-top:1px solid var(--flat-border)}
+.dsh-flat.__sm_root .__sm_group{border:0;border-top:1px solid var(--flat-border);border-radius:0;padding:20px 0 0;gap:14px}
+.dsh-flat.__sm_root .__sm_cardRow{flex-wrap:wrap;border:0;border-bottom:1px solid var(--flat-border);border-radius:0;padding:10px 0;background:none}
+.dsh-flat.__sm_root .__sm_cardPreview{flex-basis:100%;order:2}
+.dsh-flat.__sm_root .__sm_textarea{font-family:ui-monospace,Consolas,monospace;line-height:1.7;min-height:180px;resize:vertical}
+@media(max-width:480px){.dsh-flat.__sm_root{gap:16px}.dsh-flat.__sm_root .__sm_cardRow{gap:8px}}
+@media(prefers-reduced-motion:reduce){.dsh-flat.__sm_root *,.dsh-flat.__sm_root input[type=checkbox]::before{transition:none}}
+.dsh-flat.__sm_root button{border-radius:6px;min-height:34px;padding:7px 14px;font:inherit;font-size:12px;box-shadow:none}
+.dsh-flat.__sm_root :is(h2,h3){margin:0;font-size:14px;font-weight:600}
+`;
     var tagId = "dsh-soul-md/main.css";
     if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
       var tag = document.createElement("style");
@@ -113,6 +140,9 @@ window.__ModuleLoader__.load({
     }
     var zh = {
       nav: "人设卡",
+      confirmDelete: '删除人设卡“{name}”？',
+      invalidCardName: "请输入人设卡名称",
+      invalidCardContent: "请输入人设卡内容",
       intro: "输入人设卡名称和内容，保存后插件自动管理——文件路径、记忆存放都不用管。人设按 会话选择 → 默认卡 解析，聊天框标题栏可随时切换。",
       cardListTitle: "人设卡",
       cardListHint: "卡片内容会注入系统提示词；聊天框标题栏可给每个会话单独选卡。",
@@ -163,6 +193,9 @@ window.__ModuleLoader__.load({
     };
     var en = {
       nav: "Persona Card",
+      confirmDelete: 'Delete persona card "{name}"?',
+      invalidCardName: "Enter a persona card name",
+      invalidCardContent: "Enter persona card content",
       intro: "Type a persona card name and content, hit save — the plugin manages everything else (files, memory locations). Persona resolves as session choice > default card; switch per chat from the conversation header.",
       cardListTitle: "Persona cards",
       cardListHint: "Card content is injected into the system prompt; pick one per chat from the conversation header.",
@@ -221,6 +254,7 @@ window.__ModuleLoader__.load({
     var MEMORY_DEFAULTS = { inject: true, layered: false, injectMaxChars: 8000, maxBytes: 1048576 };
 
     function SoulSection(props) {
+      useLocale(props.locale);
       var t = props.t;
       var scope = props.scope;
       var [snapshot, setSnapshot] = react.useState(function () { return scope.getSnapshot(); });
@@ -279,17 +313,17 @@ window.__ModuleLoader__.load({
           setBusy(false);
           setSnapshot(scope.getSnapshot());
           if (!ok) {
-            setError(t("error") + "：" + t("notApplied"));
+            setError({ key: "error", detailKey: "notApplied" });
             setMemDraft(function () { return {}; });
             setSkipDraft(null);
             return;
           }
-          setNotice(t("saved"));
+          setNotice({ key: "saved" });
           if (onOk) onOk();
         }).catch(function (e) {
           writePending.current = false;
           setBusy(false); setSnapshot(scope.getSnapshot());
-          setError(t("error") + ": " + String(e && e.message || e));
+          setError({ key: "error", detail: String(e && e.message || e) });
         });
       }
 
@@ -303,8 +337,8 @@ window.__ModuleLoader__.load({
       function onSaveCard() {
         var name = String(cardDraft.name || "").trim();
         var content = String(cardDraft.content || "");
-        if (!name) { setError(t("error") + ": name"); return; }
-        if (!content.trim()) { setError(t("error") + ": content"); return; }
+        if (!name) { setError({ key: "error", detailKey: "invalidCardName" }); return; }
+        if (!content.trim()) { setError({ key: "error", detailKey: "invalidCardContent" }); return; }
         var next = Object.assign({}, cards);
         next[name] = content;
         runWrite([{ op: "set", path: ["cards"], value: next }], function () {
@@ -318,7 +352,7 @@ window.__ModuleLoader__.load({
       }
 
       function onDeleteCard(name) {
-        if (!window.confirm("Delete persona card \"" + name + "\"?")) return;
+        if (!window.confirm(t("confirmDelete", { name: name }))) return;
         var next = Object.assign({}, cards);
         delete next[name];
         // Deleting the active card also clears `active`. Both edits go in ONE
@@ -368,14 +402,14 @@ window.__ModuleLoader__.load({
       }
       function onSaveMemory() {
         var next = memNext();
-        if (!next) { setError(t("error") + "：" + t("invalidMemoryNumber")); return; }
+        if (!next) { setError({ key: "error", detailKey: "invalidMemoryNumber" }); return; }
         var base = memBase();
         var nextSkip = skipValue();
         var baseSkip = Boolean(value.skipSubagents);
         var nextTemplates = templatesValue();
         var baseTemplates = Boolean(value.allowTemplates);
         if (JSON.stringify(next) === JSON.stringify(base) && nextSkip === baseSkip && nextTemplates === baseTemplates) {
-          setBusy(false); setNotice(t("saved"));
+          setBusy(false); setNotice({ key: "saved" });
           return;
         }
         var ops = [];
@@ -385,7 +419,7 @@ window.__ModuleLoader__.load({
         runWrite(ops, function () { setMemDraft(function () { return {}; }); setSkipDraft(null); setTemplatesDraft(null); });
       }
 
-      return h("div", { className: "__sm_root" },
+      return h("div", { className: "__sm_root dsh-flat" },
         h("p", { className: "__sm_hint", style: { margin: "0 0 4px" } }, t("intro")),
 
         // ── card form ────────────────────────────────────────────────────
@@ -402,9 +436,9 @@ window.__ModuleLoader__.load({
           ),
           h("div", { className: "__sm_actions" },
             h("button", { type: "button", className: "__sm_btn __sm_btnPrimary", onClick: onSaveCard, disabled: busy }, t("saveCard")),
-            notice ? h("span", { className: "__sm_status" }, notice) : null,
+            notice ? h("span", { className: "__sm_status" }, messageText(t, notice)) : null,
             busy ? h("span", { className: "__sm_status" }, t("saving")) : null,
-            error ? h("span", { className: "__sm_error" }, error) : null
+            error ? h("span", { className: "__sm_error" }, messageText(t, error)) : null
           )
         ),
 
@@ -457,7 +491,7 @@ window.__ModuleLoader__.load({
                   );
                 })
               ),
-          error ? h("span", { className: "__sm_error", role: "alert" }, error) : null
+          error ? h("span", { className: "__sm_error", role: "alert" }, messageText(t, error)) : null
         ),
 
         // ── memory (plugin-managed) ──────────────────────────────────────
@@ -496,9 +530,9 @@ window.__ModuleLoader__.load({
           }),
           h("div", { className: "__sm_actions" },
             h("button", { type: "button", className: "__sm_btn __sm_btnPrimary", onClick: onSaveMemory, disabled: busy }, t("save")),
-            notice ? h("span", { className: "__sm_status" }, notice) : null,
+            notice ? h("span", { className: "__sm_status" }, messageText(t, notice)) : null,
             busy ? h("span", { className: "__sm_status" }, t("saving")) : null,
-            error ? h("span", { className: "__sm_error" }, error) : null
+            error ? h("span", { className: "__sm_error" }, messageText(t, error)) : null
           )
         )
       );
@@ -506,6 +540,7 @@ window.__ModuleLoader__.load({
 
     // ── per-session persona switcher (conversation header) ──────────────────
     function PersonaSwitcher(props) {
+      useLocale(props.locale);
       var t = props.t;
       var scope = props.scope;
       var sessionId = props.sessionId;
@@ -548,12 +583,12 @@ window.__ModuleLoader__.load({
           writePending.current = false;
           setBusy(false);
           setSnapshot(scope.getSnapshot());
-          if (!ok) setError(t("error") + "：" + t("notApplied"));
+          if (!ok) setError({ key: "error", detailKey: "notApplied" });
         }).catch(function (e) {
           writePending.current = false;
           setBusy(false);
           setSnapshot(scope.getSnapshot());
-          setError(t("error") + ": " + String(e && e.message || e));
+          setError({ key: "error", detail: String(e && e.message || e) });
         });
       }
       return h("label", { className: "__sm_switch", title: t("switchTitle") },
@@ -565,11 +600,26 @@ window.__ModuleLoader__.load({
             return h("option", { key: n, value: n }, n);
           })
         ),
-        error ? h("span", { className: "__sm_error", role: "alert" }, error) : null
+        error ? h("span", { className: "__sm_error", role: "alert" }, messageText(t, error)) : null
       );
     }
 
     // ── plugin ────────────────────────────────────────────────────────────
+
+    // Follow the host language without remounting the form or losing drafts.
+    function useLocale(locale) {
+      var refresh = react.useState(0)[1];
+      react.useEffect(function () {
+        if (!locale || typeof locale.subscribe !== "function") return;
+        return locale.subscribe(function () { refresh(function (revision) { return revision + 1; }); });
+      }, [locale]);
+    }
+    // Keep translation keys in state so feedback follows later language changes.
+    function messageText(t, message) {
+      if (!message) return "";
+      return t(message.key) + (message.detailKey ? ": " + t(message.detailKey) : message.detail ? ": " + message.detail : "");
+    }
+
     function apply(ctx) {
       var t = ctx.locale.bind(NS);
       ctx.effect(function () { return ctx.locale.register(NS, { zh: zh, en: en }); }, "dsh-soul-md: dictionaries");
@@ -586,7 +636,7 @@ window.__ModuleLoader__.load({
           key: "dsh-soul-md",
           locale: NS
         }, function (props) {
-          return h(SoulSection, Object.assign({}, props, { scope: scope }));
+          return h(SoulSection, Object.assign({}, props, { scope: scope, t: t, locale: ctx.locale }));
         });
       });
       ctx.slots.inject("conversation.session.header.actions", function () {
@@ -595,7 +645,7 @@ window.__ModuleLoader__.load({
           id: "soul-md-persona",
           order: 40
         }, function (props) {
-          return h(PersonaSwitcher, Object.assign({}, props, { scope: scope, t: t }));
+          return h(PersonaSwitcher, Object.assign({}, props, { scope: scope, t: t, locale: ctx.locale }));
         });
       });
     }
