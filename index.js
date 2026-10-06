@@ -38,6 +38,7 @@ import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { createMemoryLayout, normalizeMemoryTopic, retainMemoryEnds } from "./memory-layout.js";
 import { skipsSubagentSections } from "./subagents.js";
+import { boundedInteger, renderRecall, searchTopics } from "./memory-recall.js";
 
 /** Cordis plugin name. */
 const name = "soul-md";
@@ -83,6 +84,14 @@ const Config = z.object({
     layered: z.boolean().default(false),
     /** Cap for the injected memory section (chars, from the file head). */
     injectMaxChars: z.number().default(8000),
+    /** Optional keyword recall; defaults keep the existing stable prefix. */
+    recall: z.union([z.const("off"), z.const("keyword")]).default("off"),
+    /** Hide the full injected index only while keyword recall is on. */
+    indexMode: z.union([z.const("all"), z.const("recall")]).default("all"),
+    recallMaxTopics: z.number().default(5),
+    recallMaxChars: z.number().default(1600),
+    /** Restore descriptors for topics consulted this session after compaction. */
+    compactionRecall: z.boolean().default(false),
     /** Prompt section order for the injected memory section. */
     order: z.number().default(0.5),
     // ── legacy (kept for schema compatibility; ignored) ──────────────────
@@ -209,6 +218,65 @@ function apply(ctx, config) {
     topic,
   });
 
+  // Session objects own state: closed sessions are not retained or persisted.
+  const recallStates = new WeakMap();
+  const stateOf = (agent, create = false) => {
+    const session = agent?.session;
+    if (!session || typeof session !== "object") return null;
+    let state = recallStates.get(session);
+    if (!state && create) {
+      state = { count: 0, query: "", seen: new Set(), consulted: new Map(), pending: false, recovery: [], turn: null };
+      recallStates.set(session, state);
+    }
+    return state;
+  };
+  const rememberTopic = (agent, source, topic) => {
+    if (!topic || !cfg().memory?.compactionRecall) return;
+    const state = stateOf(agent, true);
+    if (!state) return;
+    const key = `${source}\0${topic}`;
+    state.consulted.delete(key);
+    state.consulted.set(key, { source, key: topic });
+    if (state.consulted.size > 128) state.consulted.delete(state.consulted.keys().next().value);
+  };
+  const searchableTopics = (agent) => {
+    const seen = new Set();
+    return memoryScopes(agent).flatMap((source) => memoryLayout.listTopics(source).flatMap((topic) => {
+      if (seen.has(topic.key) || !normalizeMemoryTopic(topic.key)) return [];
+      seen.add(topic.key);
+      return [{ ...topic, source }];
+    }));
+  };
+  // DSH assembles the prompt BEFORE agent/pre-step. Inbox claim is the
+  // synchronous hook before that assembly, so recall belongs to this message,
+  // not to the following step or turn.
+  ctx.on("agent/inbox/claimed", ({ agent, message, turn }) => {
+    const c = cfg();
+    if (message.source?.kind !== "user" || !c.memory?.layered
+      || (c.memory.recall !== "keyword" && !c.memory.compactionRecall)
+      || skipsSubagentSections(c, agent)) return;
+    const state = stateOf(agent, true);
+    if (!state || state.seen.has(message.id)) return;
+    state.seen.add(message.id);
+    if (state.seen.size > 128) state.seen.delete(state.seen.values().next().value);
+    state.count += 1;
+    state.query = message.content.filter((block) => block.type === "text")
+      .map((block) => block.text).join("\n").slice(0, 2000);
+    if (c.memory.compactionRecall && state.pending) state.recovery = [...state.consulted.values()];
+    else if (state.turn !== turn) state.recovery = [];
+    state.turn = turn;
+    state.pending = false;
+  });
+  // compaction/* are durable session events in DSH 0.2, not independent
+  // Cordis notifications. Failed compaction must not trigger recovery.
+  ctx.on("session/event", (session, event) => {
+    if (!cfg().memory?.compactionRecall) return;
+    const state = recallStates.get(session);
+    if (state && (event.type === "compaction/prune"
+      || (event.type === "compaction/end" && event.data.error === undefined))) state.pending = true;
+  });
+  ctx.on("session/disposed", (session) => recallStates.delete(session));
+
   /** Render the persona section for one assembly. */
   const renderPersona = (assembly) => {
     const c = cfg();
@@ -221,7 +289,10 @@ function apply(ctx, config) {
     const c = cfg();
     if (!c.memory?.inject) return "";
     if (skipsSubagentSections(c, assembly?.agent)) return "";
-    const { text, index } = memoryReadChain(assembly?.agent);
+    const { text, index: fullIndex } = memoryReadChain(assembly?.agent);
+    const index = c.memory.layered && c.memory.recall === "keyword" && c.memory.indexMode === "recall"
+      ? "Use memory_search(query) to find topic keys and summaries; memory_read(topic) retrieves full text."
+      : fullIndex;
     const rendered = [text, index].filter(Boolean).join("\n\n");
     if (!rendered) return "";
     const cap = Math.max(0, Math.floor(c.memory.injectMaxChars ?? 8000));
@@ -240,9 +311,35 @@ function apply(ctx, config) {
       + "\n\n> core 部分内容未注入，请用 memory_read 读取全文 / part of core omitted; use memory_read for the full text.";
   };
 
+  const renderMemoryRecall = (assembly) => {
+    const c = cfg();
+    if (!c.memory?.inject || !c.memory.layered || skipsSubagentSections(c, assembly?.agent)) return "";
+    const state = stateOf(assembly?.agent);
+    if (!state) return "";
+    const topics = searchableTopics(assembly.agent);
+    const limit = boundedInteger(c.memory.recallMaxTopics, 5, 20);
+    const recovered = c.memory.compactionRecall && limit ? state.recovery.flatMap((entry) => {
+      const topic = topics.find((topic) => topic.key === entry.key && topic.source === entry.source);
+      return topic ? [topic] : [];
+    }).slice(-limit) : [];
+    const recoveredKeys = new Set(recovered.map((topic) => topic.key));
+    const recalled = c.memory.recall === "keyword" && state.count >= 2
+      ? searchTopics(topics, state.query, readCached, limit).filter((topic) => !recoveredKeys.has(topic.key)) : [];
+    const remaining = Math.max(0, boundedInteger(c.memory.injectMaxChars, 8000, Number.MAX_SAFE_INTEGER)
+      - renderMemory(assembly).length - 2);
+    return renderRecall([
+      { heading: "压缩后曾查阅的主题 / Topics consulted before compaction (use memory_read):", topics: recovered },
+      { heading: "可能相关的记忆，仅供参考 / Possibly relevant memory; verify with memory_read:", topics: recalled },
+    ], Math.min(remaining, boundedInteger(c.memory.recallMaxChars, 1600, 8000)));
+  };
+
   // ── prompt sections (function text: resolved per assembly, hot by nature) ──
-  const sectionDisposers = { persona: null, memory: null };
+  const sectionDisposers = { persona: null, memory: null, recall: null };
   function registerSections() {
+    if (sectionDisposers.recall) {
+      sectionDisposers.recall();
+      sectionDisposers.recall = null;
+    }
     if (sectionDisposers.persona) {
       sectionDisposers.persona();
       sectionDisposers.persona = null;
@@ -264,11 +361,23 @@ function apply(ctx, config) {
       text: renderMemory,
       interpolate: cfg().allowTemplates === true,
     });
+    if (cfg().memory?.recall === "keyword" || cfg().memory?.compactionRecall) {
+      sectionDisposers.recall = ctx.systemPrompt.section({
+        name: "soul:recall",
+        order: (cfg().memory?.order ?? 0.5) + 0.01,
+        text: renderMemoryRecall,
+        interpolate: false,
+      });
+    }
   }
 
   ctx.effect(() => {
     registerSections();
     return () => {
+      if (sectionDisposers.recall) {
+        sectionDisposers.recall();
+        sectionDisposers.recall = null;
+      }
       if (sectionDisposers.persona) {
         sectionDisposers.persona();
         sectionDisposers.persona = null;
@@ -514,6 +623,7 @@ function apply(ctx, config) {
       if (current === null && inherited !== null) await writeFile(target.file, existing + block, "utf8");
       else await appendFile(target.file, block, "utf8");
       fileCache.delete(target.file);
+      rememberTopic(agentOf(exec), target.scope, target.topic);
       return { bytes: byteLen(block), totalBytes, scope: target.scope, topic: target.topic };
     },
     presentCall: (args) => ({ card: "generic", title: "Append to memory", kind: "other", rawInput: args }),
@@ -555,6 +665,7 @@ function apply(ctx, config) {
       const { exists, text, index, source, topic: resolvedTopic = "" } = memoryReadChain(agentOf(exec), topic);
       const full = [text, index].filter(Boolean).join("\n\n");
       if (!exists || !full) return { exists: false, bytes: 0, truncated: false, source, topic: resolvedTopic, content: "" };
+      rememberTopic(agentOf(exec), source, resolvedTopic);
       const MAX = 20000;
       const truncated = full.length > MAX;
       const excerpt = index && index.length < MAX
@@ -568,6 +679,35 @@ function apply(ctx, config) {
         topic: resolvedTopic,
         content: truncated ? `${excerpt}\n…(truncated; beginning and end of core retained when layered; use a topic or file read for complete memory)…` : full,
       };
+    },
+  }));
+
+  ctx.tools.register(defineTool({
+    name: "memory_search",
+    description: "Search layered topic keys, titles, summaries AND full bodies using local keywords (including Chinese phrase bigrams). Returns keys and summaries only. This is lexical search, not semantic matching: try alternate wording if no matches. Active persona topics take precedence over global topics with the same key. Use memory_read(topic) to verify matches.",
+    parameters: {
+      query: { type: "string", required: true, description: "Keywords or a short question to search in topic content." },
+      limit: { type: "integer", description: "Maximum results, 1–20 (default 5)." },
+    },
+    output: {
+      schema: {
+        type: "object", additionalProperties: false,
+        properties: {
+          matches: { type: "array", items: {
+            type: "object", additionalProperties: false,
+            properties: { key: { type: "string" }, title: { type: "string" }, summary: { type: "string" }, source: { type: "string" }, score: { type: "number" } },
+          } },
+        },
+      },
+      render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }],
+    },
+    isConcurrencySafe: () => true,
+    async execute(args, exec) {
+      if (!cfg().memory?.layered) throw new Error("memory_search requires memory.layered to be enabled");
+      const query = String(args.query ?? "").trim();
+      if (!query) throw new Error("memory_search: `query` must be non-empty");
+      return { matches: searchTopics(searchableTopics(agentOf(exec)), query, readCached,
+        boundedInteger(args.limit, 5, 20)) };
     },
   }));
 
@@ -606,6 +746,7 @@ function apply(ctx, config) {
       await ensureParent(target.file);
       await writeFile(target.file, content, "utf8");
       fileCache.delete(target.file);
+      rememberTopic(agentOf(exec), target.scope, target.topic);
       return { bytes, scope: target.scope, topic: target.topic };
     },
   }));

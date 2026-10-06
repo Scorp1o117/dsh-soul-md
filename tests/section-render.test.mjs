@@ -18,6 +18,7 @@ function makeHost(config) {
   const sections = new Map();
   const tools = new Map();
   const disposers = [];
+  const listeners = new Map();
   const track = (result) => {
     if (typeof result === "function") disposers.push(result);
     return () => {};
@@ -39,7 +40,7 @@ function makeHost(config) {
       },
     },
     effect: (fn) => track(fn()),
-    on: () => () => {},
+    on: (name, listener) => { listeners.set(name, listener); return () => listeners.delete(name); },
     inject: (_deps, cb) => {
       // A real host hands the settings scope over asynchronously; keeping that
       // timing also lets apply finish defining its closures before onChange runs.
@@ -62,6 +63,7 @@ function makeHost(config) {
     ctx,
     sections,
     tools,
+    listeners,
     dispose() {
       for (const disposer of disposers.splice(0)) {
         try {
@@ -281,4 +283,131 @@ test("layered memory_read keeps a long core's recent tail before the topic index
   assert.match(read.content, /^EARLY /);
   assert.match(read.content, / RECENT APPEND\n\n## 主题记忆索引/);
   assert.match(read.content, /`project` — Project/);
+});
+
+async function topicFixture(home, scope, key, content) {
+  const dir = join(home, "soul-md", "memory", scope, "topics");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, `${key}.md`), content, "utf8");
+}
+const humanMessage = (id, text) => ({ id, role: "user", source: { kind: "user" }, content: [{ type: "text", text }] });
+const admit = async (host, actor, messages) => {
+  if (messages.length) actor.testTurn = (actor.testTurn ?? 0) + 1;
+  for (const message of messages) host.listeners.get("agent/inbox/claimed")({ agent: actor, message, turn: actor.testTurn });
+};
+const recallText = (host, actor) => host.sections.get("soul:recall")?.text({ agent: actor }) ?? "";
+
+test("memory_search finds body-only English and Chinese terms without exposing full bodies", async (t) => {
+  const { host, home } = await boot(t, { memory: { layered: true, inject: true, injectMaxChars: 8000 } });
+  await topicFixture(home, "D", "build", "# Build\n\nSummary only.\n\nSECRET_BODY: Electron 打包后的安装路径。");
+  await topicFixture(home, "global", "fallback", "# Fallback\n\nPublic summary.\n\nnative binding");
+  await topicFixture(home, "global", "build", "# Hidden\n\nShould never win.\n\nquasarword");
+  const search = (query, limit) => host.tools.get("memory_search").execute({ query, ...(limit === undefined ? {} : { limit }) }, { agent: agent() });
+  for (const query of ["electron", "如何处理打包后的路径"]) {
+    const found = await search(query);
+    assert.equal(found.matches[0].key, "build");
+    assert.equal(found.matches[0].source, "D");
+    assert.doesNotMatch(JSON.stringify(found), /SECRET_BODY/);
+    assert.equal(found.matches[0].summary, "Summary only.");
+  }
+  assert.equal((await search("native")).matches[0].source, "global");
+  assert.deepEqual((await search("quasarword")).matches, []);
+  assert.deepEqual((await search("no-match")).matches, []);
+  assert.deepEqual((await search("electron", 0)).matches, []);
+  await assert.rejects(search("  "), /non-empty/);
+  assert.equal(host.sections.has("soul:recall"), false, "defaults keep the original prompt sections");
+});
+
+test("keyword recall starts on the second human message, is stable per step and bounded", async (t) => {
+  const { host, home } = await boot(t, { memory: {
+    layered: true, inject: true, recall: "keyword", indexMode: "recall",
+    injectMaxChars: 700, recallMaxChars: 230, recallMaxTopics: 1,
+  } });
+  await topicFixture(home, "D", "build", "# Build {{literal}}\n\nBrief.\n\nSECRET_BODY Electron");
+  await topicFixture(home, "D", "other", "# Other\n\nDifferent subject.");
+  const actor = agent();
+  const baseline = host.sections.get("soul:memory").text({ agent: actor });
+  assert.doesNotMatch(baseline, /Different subject/);
+  assert.match(baseline, /memory_search/);
+  await admit(host, actor, [humanMessage("1", "Electron")]);
+  assert.equal(recallText(host, actor), "");
+  await admit(host, actor, [humanMessage("2", "ELECTRON")]);
+  const recalled = recallText(host, actor);
+  assert.match(recalled, /"build"/);
+  assert.match(recalled, /可能相关/);
+  assert.doesNotMatch(recalled, /SECRET_BODY|Different subject/);
+  assert.ok(recalled.length <= 230);
+  assert.ok(baseline.length + recalled.length + 2 <= 700);
+  await admit(host, actor, []);
+  assert.equal(recallText(host, actor), recalled);
+  assert.equal(host.sections.get("soul:memory").text({ agent: actor }), baseline);
+  assert.equal(host.sections.get("soul:recall").interpolate, false);
+  const read = await host.tools.get("memory_read").execute({}, { agent: actor });
+  assert.match(read.content, /Different subject/);
+  await admit(host, actor, [humanMessage("3", "unmatched")]);
+  assert.equal(recallText(host, actor), "");
+  assert.equal(recallText(host, agent()), "", "other session objects must not share recall state");
+});
+
+test("compaction recovery waits for a new human message and lasts exactly that turn", async (t) => {
+  const { host, home } = await boot(t, { memory: {
+    layered: true, inject: true, compactionRecall: true, injectMaxChars: 8000, recallMaxTopics: 5,
+  } });
+  await topicFixture(home, "D", "build", "# Build\n\nBrief.\n\nSECRET_BODY");
+  const actor = agent();
+  const exec = { agent: actor };
+  await host.tools.get("memory_read").execute({ topic: "build" }, exec);
+  await host.tools.get("memory_append").execute({ topic: "written", section: "test", content: "New note" }, exec);
+  await host.tools.get("memory_rewrite").execute({ topic: "rewritten", content: "# Rewritten\n\nSaved note" }, exec);
+  await host.tools.get("memory_read").execute({ topic: "missing" }, exec);
+  const emit = (type, data = {}) => host.listeners.get("session/event")(actor.session, { type, data });
+  emit("compaction/end", { error: "failed" });
+  await admit(host, actor, [humanMessage("1", "hi")]);
+  assert.equal(recallText(host, actor), "");
+  emit("compaction/end");
+  await admit(host, actor, []);
+  assert.equal(recallText(host, actor), "");
+  await admit(host, actor, [{ ...humanMessage("summary", "compressed text"), source: { kind: "compaction" } }]);
+  assert.equal(recallText(host, actor), "");
+  await admit(host, actor, [humanMessage("2", "continue")]);
+  const recovered = recallText(host, actor);
+  assert.match(recovered, /Topics consulted before compaction/);
+  assert.match(recovered, /"build"/);
+  assert.match(recovered, /"written"/);
+  assert.match(recovered, /"rewritten"/);
+  assert.doesNotMatch(recovered, /missing|SECRET_BODY/);
+  await admit(host, actor, []);
+  assert.equal(recallText(host, actor), recovered);
+  await admit(host, actor, [humanMessage("3", "continue again")]);
+  assert.equal(recallText(host, actor), "");
+  emit("compaction/prune");
+  await admit(host, actor, [humanMessage("4", "after prune")]);
+  assert.equal(recallText(host, actor), recovered);
+  host.listeners.get("session/disposed")(actor.session);
+  assert.equal(recallText(host, actor), "");
+});
+
+test("recall respects injection budget, subagent policy and changed persona scope", async (t) => {
+  const { host, home } = await boot(t, { skipSubagents: true, memory: {
+    layered: true, inject: true, recall: "keyword", compactionRecall: true,
+    injectMaxChars: 180, recallMaxChars: 1600,
+  } });
+  await topicFixture(home, "D", "build", "# Build\n\nBrief.\n\nElectron");
+  const actor = agent();
+  await admit(host, actor, [humanMessage("1", "Electron"), humanMessage("2", "Electron")]);
+  assert.equal(recallText(host, actor), "", "full index uses all available budget");
+  const child = agent("subagent");
+  await admit(host, child, [humanMessage("1", "Electron"), humanMessage("2", "Electron")]);
+  assert.equal(recallText(host, child), "");
+  await host.tools.get("memory_read").execute({ topic: "build" }, { agent: actor });
+  host.listeners.get("session/event")(actor.session, { type: "compaction/end", data: {} });
+  await admit(host, actor, [humanMessage("3", "continue")]);
+  // Settings getter remains live: switch to a new persona without restarting.
+  const config = host.ctx.get("settings").register().get();
+  config.cards.E = "Other persona";
+  config.active = "E";
+  config.memory.injectMaxChars = 8000;
+  assert.equal(recallText(host, actor), "");
+  config.memory.layered = false;
+  await assert.rejects(host.tools.get("memory_search").execute({ query: "Electron" }, { agent: actor }), /layered/);
 });

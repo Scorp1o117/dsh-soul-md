@@ -8,6 +8,43 @@
 - 主题索引标题最多 80 字符，摘要最多 240 字符；主题 key 保持独立，全文不变。
 - 已存在的 `topics/core.md` 不会自动移动或合并。请先备份，通过文件读取核对内容，再将需要常驻的条目合并到 `core.md`，其余内容移到其它主题 key；新的 `memory_read({ topic: "core" })` 会读取常驻 core。
 
+## 关键词检索与可选召回
+
+开启分层记忆后，可用 `memory_search({ query: "Electron 打包", limit: 5 })`
+检索主题 key、标题、摘要和全文，只返回 key 与摘要，再用 `memory_read(topic)` 核对全文。
+同名主题优先使用当前人设卡的版本；卡内缺失的主题可回退到全局，和按 topic 读取的顺序一致。
+英文忽略大小写，中文还会使用相邻两个字的词组匹配。这是关键词检索，不能保证召回没有共同
+字面内容的同义表达；无结果时请换词重试。工具不依赖自动召回开关。
+
+配置页新增独立选项，自动召回和压缩补偿均默认关闭：
+
+- `memory.recall: "keyword"`：从当前插件运行期间处理的第二条用户消息开始，
+  通过 `soul:recall` 提示可能相关的主题 key 与摘要；首条消息、内部上下文和压缩摘要不触发。
+- `memory.indexMode: "recall"`：开启关键词召回时，把全量注入索引改成固定的检索提示，
+  减少主题数量增长带来的每轮开销。索引生成、标题/摘要截断、原有截断规则以及
+  `memory_read()` 返回的完整索引保持原有行为。
+- `memory.compactionRecall: true`：成功压缩或裁剪后的下一条用户消息，重新提示本会话
+  通过工具读过、追加过或重写过的主题 key 与摘要。该用户回合内保持稳定，下一个用户回合清除；
+  压缩失败不触发。最多追踪最近 128 个主题 key，仅保存在内存中，插件卸载或重启后重置。
+
+两种补充都不注入主题全文，共用 `recallMaxChars`（默认 1600，最多 8000）以及
+原有记忆段落用完后剩余的 `injectMaxChars` 预算；core/索引占满预算时不会额外添加行。
+每组最多 `recallMaxTopics` 条（默认 5，最多 20）。动态摘要始终保留字面花括号，
+不受 `allowTemplates` 开关影响；`memory.inject: false` 和 `skipSubagents` 也会禁止召回段落。
+
+可在 `soul-md` 行使用以下配置，或从插件详情页开启：
+
+```yaml
+memory:
+  layered: true
+  recall: keyword
+  indexMode: recall
+  compactionRecall: true
+  recallMaxTopics: 5
+  recallMaxChars: 1600
+  injectMaxChars: 24000
+```
+
 ## 配置入口（DSH 0.2.0-rc.2 起）
 
 在首页侧边栏打开 **插件 → 已安装 → dsh-soul-md**，直接在插件详情页配置并保存。配置页注册到官方的 `plugins.bundle.config` 接口；全局设置页不再重复显示配置入口。Web 与桌面版使用相同界面，本版要求 DSH 0.2.0-rc.2 或更新的 0.2.x 版本。现有配置无需迁移。
@@ -27,6 +64,7 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 - **人设卡**：卡片内容渲染成系统提示词段落（`soul:persona`）。支持多张卡：设置一张默认卡，聊天框标题栏的「人设」下拉可以给每个会话单独选卡
 - **长期记忆**：Agent 自带五个工具——
   - `memory_append` / `memory_read` / `memory_rewrite`：持久记忆文件（Agent.md / memory.md 风格）。当前人设卡有自己的记忆，没选卡时用全局记忆；分层模式下可用可选的 `topic` 参数按主题读写
+  - `memory_search`：检索分层主题正文，返回 key 和摘要，按需再读取全文
   - `soul_read` / `soul_update`：AI 自己读、自己**演化人设卡**——发现自己的稳定特质就折叠进卡片，跨会话**持续成长**而不是每次重置
   - 记忆会以 `soul:memory` 段落注入提示词（有上限），AI 随时看得见自己的记忆
 - **解析规则**：`会话选择（聊天框切换）> 工作区人设 > 默认卡 > 无`，切换下一轮对话即生效，无需重启
@@ -37,13 +75,18 @@ DeepSeek Harness 的人设 + 长期记忆插件——**完全不用管文件**�
 在桌面端的“插件”页面安装，或使用桌面端“应用 → 管理 dsh 命令”注册的命令：
 
 ```powershell
-dsh plugin --profile desktop add dsh-soul-md@0.8.6
+dsh plugin --profile desktop add dsh-soul-md
 ```
 
 重启桌面端以加载客户端插件。配置位于 `$DSH_HOME/profiles/desktop`。
 
 
 ## 安装
+
+若 Hub 报错 `Cannot find module '...app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js'`，
+说明桌面宿主的 CLI 引导失败，尚未加载本插件。请重新安装完整的官方桌面发行包，
+或尝试官方「插件」页面（绕开 Hub）；把命令改成 Web profile 无法修复桌面应用包。
+详见 [issue #14](https://github.com/Scorp1o117/dsh-soul-md/issues/14)。
 
 在 profile 的 `cordis.patch.yml`（如 `$DSH_HOME/profiles/web/cordis.patch.yml`）里 insert：
 
@@ -74,6 +117,11 @@ dsh plugin --profile desktop add dsh-soul-md@0.8.6
 | `memory.maxBytes` | `1048576` | `memory_append` / `memory_rewrite` 超过此大小会拒绝 |
 | `memory.inject` | `true` | 把记忆渲染为 `soul:memory` 提示词段落 |
 | `memory.layered` | `false` | 启用渐进式分层记忆：core + topics 索引 |
+| `memory.recall` | `off` | `off` / `keyword`；从第二条用户消息起自动召回主题 |
+| `memory.indexMode` | `all` | `all` / `recall`；后者只在关键词召回启用时省略全量注入索引 |
+| `memory.compactionRecall` | `false` | 成功压缩或裁剪后的下一用户回合补偿已查阅主题的 key 和摘要 |
+| `memory.recallMaxTopics` | `5` | 每组召回/补偿的主题上限，最多 20 |
+| `memory.recallMaxChars` | `1600` | 召回与补偿合计字符上限，最多 8000，同时受剩余注入预算约束 |
 | `memory.injectMaxChars` | `8000` | 注入记忆内容的字符上限；单文件模式保留开头与最新尾部，分层模式先保留主题索引，再保留 core 首尾。`memory_read` 超过 20000 字符时也保留首尾。 |
 | `memory.order` | `0.5` | 注入的记忆段落顺序 |
 | `allowTemplates` | `false` | 默认将人设卡和记忆中的 `{{…}}` 原样注入；开启后由宿主解析提示词变量，未知变量会使渲染失败 |

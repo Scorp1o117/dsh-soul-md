@@ -172,6 +172,15 @@ window.__ModuleLoader__.load({
       memoryIntro: "AI 用 memory_append / memory_read / memory_rewrite 读写记忆：当前人设卡有自己的记忆，没选卡时用全局记忆。记忆文件由插件自动管理。",
       memoryInjectHint: "把记忆渲染为 soul:memory 提示词段落（AI 可随时读到记忆）。",
       memoryLayeredHint: "默认关闭。开启后优先保留 topics/*.md 的标题和摘要索引；core.md 超过注入上限时保留首尾。AI 可用 memory_read(topic) 按需读取全文。",
+      fieldMemoryRecall: "自动关键词召回",
+      memoryRecallHint: "默认关闭；从第二条用户消息起检索主题正文，只提示 key 和摘要。关键词匹配不等于语义检索。",
+      fieldMemoryIndexMode: "注入主题索引",
+      memoryIndexModeHint: "默认全量索引；仅召回模式须开启关键词召回，可减少主题多时的每轮开销。memory_read 仍返回完整索引。",
+      fieldMemoryCompactionRecall: "压缩后补偿已查阅主题",
+      memoryCompactionRecallHint: "默认关闭；成功压缩或裁剪后的下一条用户消息，提示本会话已读写主题的 key 和摘要。仅在当前进程有效，不注入全文。",
+      fieldMemoryRecallMaxTopics: "每组召回主题上限（最多 20）",
+      fieldMemoryRecallMaxChars: "召回与压缩补偿总字符上限（最多 8000）",
+      recallOff: "关闭", recallKeyword: "关键词", indexAll: "全量索引", indexRecall: "仅召回",
       skipSubagentsHint: "默认关闭。开启后，DSH 以 origin: \"subagent\" 创建的委派子会话不再收到 soul:persona / soul:memory 两段提示词；子代理的工具仍使用它原本的人设卡与记忆作用域，只是不再自动注入。",
       allowTemplatesHint: "默认关闭，花括号原样保留。仅当卡片或记忆需要使用 {{cwd}} 等宿主变量时开启；未知变量仍会使提示词渲染失败。",
       memoryMaxCharsHint: "注入段落的字符上限；超限时保留首尾，全文可用 memory_read 读取。",
@@ -225,6 +234,15 @@ window.__ModuleLoader__.load({
       memoryIntro: "The AI reads/writes memory with memory_append / memory_read / memory_rewrite: the active persona card has its own memory, otherwise the global memory is used. Files are managed by the plugin.",
       memoryInjectHint: "Also render the memory as the soul:memory prompt section (the agent always sees its memory).",
       memoryLayeredHint: "Off by default. The topics/*.md title and summary index takes priority; if core.md exceeds the injection cap, its beginning and end remain visible. memory_read(topic) retrieves full topic text on demand.",
+      fieldMemoryRecall: "Automatic keyword recall",
+      memoryRecallHint: "Off by default. From the second user message, search topic bodies and inject keys and summaries only. Lexical matching is not semantic search.",
+      fieldMemoryIndexMode: "Injected topic index",
+      memoryIndexModeHint: "Full index by default. Recall-only mode requires keyword recall and reduces per-turn topic overhead. memory_read still returns the full index.",
+      fieldMemoryCompactionRecall: "Recall consulted topics after compaction",
+      memoryCompactionRecallHint: "Off by default. The next user message after successful compaction/pruning restores keys and summaries of topics read/written in this session. Process-local; no full bodies injected.",
+      fieldMemoryRecallMaxTopics: "Topic limit per recall group (up to 20)",
+      fieldMemoryRecallMaxChars: "Combined recall/recovery character cap (up to 8000)",
+      recallOff: "Off", recallKeyword: "Keyword", indexAll: "Full index", indexRecall: "Recall only",
       skipSubagentsHint: "Off by default. When enabled, sessions DSH created as delegated children (origin: subagent) no longer receive the soul:persona / soul:memory sections. The child tools keep the same persona card and memory scope - only the prompt injection is skipped.",
       allowTemplatesHint: "Off by default so braces remain literal. Enable only if cards or memory need host variables such as {{cwd}}; unknown variables will still fail prompt rendering.",
       memoryMaxCharsHint: "Cap for the injected section (chars); truncation retains both ends. Use memory_read for the full text.",
@@ -248,10 +266,15 @@ window.__ModuleLoader__.load({
     var MEMORY_FIELDS = [
       { key: "inject", label: "fieldMemoryInject", type: "checkbox", hint: "memoryInjectHint" },
       { key: "layered", label: "fieldMemoryLayered", type: "checkbox", hint: "memoryLayeredHint" },
+      { key: "recall", label: "fieldMemoryRecall", type: "select", options: [["off", "recallOff"], ["keyword", "recallKeyword"]], hint: "memoryRecallHint" },
+      { key: "indexMode", label: "fieldMemoryIndexMode", type: "select", options: [["all", "indexAll"], ["recall", "indexRecall"]], hint: "memoryIndexModeHint" },
+      { key: "compactionRecall", label: "fieldMemoryCompactionRecall", type: "checkbox", hint: "memoryCompactionRecallHint" },
+      { key: "recallMaxTopics", label: "fieldMemoryRecallMaxTopics", type: "number", max: 20 },
+      { key: "recallMaxChars", label: "fieldMemoryRecallMaxChars", type: "number", max: 8000 },
       { key: "injectMaxChars", label: "fieldMemoryInjectMaxChars", type: "number", hint: "memoryMaxCharsHint" },
       { key: "maxBytes", label: "fieldMemoryMaxBytes", type: "number", hint: "memoryMaxBytesHint" }
     ];
-    var MEMORY_DEFAULTS = { inject: true, layered: false, injectMaxChars: 8000, maxBytes: 1048576 };
+    var MEMORY_DEFAULTS = { inject: true, layered: false, recall: "off", indexMode: "all", compactionRecall: false, recallMaxTopics: 5, recallMaxChars: 1600, injectMaxChars: 8000, maxBytes: 1048576 };
 
     function SoulSection(props) {
       useLocale(props.locale);
@@ -384,9 +407,12 @@ window.__ModuleLoader__.load({
         MEMORY_FIELDS.forEach(function (f) {
           var cur = memDraftValue(f);
           if (f.type === "checkbox") out[f.key] = Boolean(cur);
+          else if (f.type === "select") {
+            if (f.options.some(function (option) { return option[0] === cur; })) out[f.key] = cur;
+          }
           else {
             var number = Number(cur);
-            if (String(cur).trim() === "" || !Number.isSafeInteger(number) || number < 1) return;
+            if (String(cur).trim() === "" || !Number.isSafeInteger(number) || number < 1 || (f.max && number > f.max)) return;
             out[f.key] = number;
           }
         });
@@ -396,7 +422,7 @@ window.__ModuleLoader__.load({
         var out = {};
         MEMORY_FIELDS.forEach(function (f) {
           var cur = value.memory?.[f.key] ?? MEMORY_DEFAULTS[f.key];
-          out[f.key] = f.type === "checkbox" ? Boolean(cur) : Number(cur);
+          out[f.key] = f.type === "checkbox" ? Boolean(cur) : f.type === "select" ? String(cur) : Number(cur);
         });
         return out;
       }
@@ -513,6 +539,14 @@ window.__ModuleLoader__.load({
             h("span", { className: "__sm_hint" }, t("allowTemplatesHint"))
           ),
           MEMORY_FIELDS.map(function (f) {
+            if (f.type === "select") {
+              return h("label", { key: f.key, className: "__sm_field" },
+                h("span", { className: "__sm_label" }, t(f.label)),
+                h("select", { className: "__sm_input", value: memDraftValue(f), onChange: function (e) { setMemField(f, e.target.value); } },
+                  f.options.map(function (option) { return h("option", { key: option[0], value: option[0] }, t(option[1])); })),
+                f.hint ? h("span", { className: "__sm_hint" }, t(f.hint)) : null
+              );
+            }
             if (f.type === "checkbox") {
               return h("label", { key: f.key, className: "__sm_field" },
                 h("span", { className: "__sm_row" },
@@ -524,7 +558,7 @@ window.__ModuleLoader__.load({
             }
             return h("label", { key: f.key, className: "__sm_field" },
               h("span", { className: "__sm_label" }, t(f.label)),
-              h("input", { className: "__sm_input", type: "number", min: 1, step: 1, value: memDraftValue(f), onChange: function (e) { setMemField(f, e.target.value); } }),
+              h("input", { className: "__sm_input", type: "number", min: 1, max: f.max, step: 1, value: memDraftValue(f), onChange: function (e) { setMemField(f, e.target.value); } }),
               f.hint ? h("span", { className: "__sm_hint" }, t(f.hint)) : null
             );
           }),

@@ -5,7 +5,7 @@ import vm from "node:vm";
 
 const source = await readFile(new URL("../client.js", import.meta.url), "utf8");
 
-function mountSwitcher(scope) {
+function mountSwitcher(scope, surface = "soul-md-persona") {
   let bundle;
   const window = { __ModuleLoader__: { load(value) { bundle = value; } } };
   vm.runInNewContext(source, { window });
@@ -37,10 +37,10 @@ function mountSwitcher(scope) {
     configForms: { get: () => scope },
     slots: {
       inject: (_name, fn) => fn(),
-      register: (meta, fn) => callbacks.set(meta.id, fn),
+      register: (meta, fn) => callbacks.set(meta.id ?? meta.name, fn),
     },
   });
-  const element = callbacks.get("soul-md-persona")({ sessionId: "s1" });
+  const element = callbacks.get(surface)({ sessionId: "s1" });
   return () => {
     cursor = 0;
     return element.type(element.props);
@@ -80,4 +80,53 @@ test("session switcher reports a refused write, rolls back, and blocks another c
   assert.equal(find(settled, "select").props.value, "A");
   assert.equal(find(settled, "select").props.disabled, false);
   assert.match(settled.children.at(-1).children.join(" "), /notApplied/);
+});
+
+function allNodes(tree) {
+  return [tree, ...(tree?.children ?? []).flatMap(allNodes)].filter((node) => node && typeof node === "object");
+}
+
+test("recall selectors and recovery toggle save through one revision fence and survive remount", async () => {
+  const snapshot = { status: "ready", writable: true, revision: 1, value: {
+    cards: {}, memory: { inject: true, layered: true, recall: "off", indexMode: "all", compactionRecall: false, hiddenSetting: "preserve" },
+  } };
+  let calls = 0;
+  const scope = {
+    getSnapshot: () => snapshot,
+    async mutate(ops, revision) {
+      assert.equal(revision, snapshot.revision);
+      calls++;
+      for (const op of ops) snapshot.value[op.path[0]] = op.value;
+      snapshot.revision++;
+      return true;
+    },
+  };
+  const render = mountSwitcher(scope, "plugins.bundle.config");
+  const field = (key) => allNodes(render()).find((node) => node.props?.key === key);
+  const control = (key) => allNodes(field(key)).find((node) => node.type === "select" || node.type === "input");
+  control("recall").props.onChange({ target: { value: "keyword" } });
+  control("indexMode").props.onChange({ target: { value: "recall" } });
+  control("compactionRecall").props.onChange({ target: { checked: true } });
+  control("recallMaxTopics").props.onChange({ target: { value: "3" } });
+  const save = () => allNodes(render()).filter((node) => node.type === "button" && node.children.includes("save")).at(-1);
+  save().props.onClick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 1);
+  assert.equal(snapshot.value.memory.recall, "keyword");
+  assert.equal(snapshot.value.memory.indexMode, "recall");
+  assert.equal(snapshot.value.memory.compactionRecall, true);
+  assert.equal(snapshot.value.memory.recallMaxTopics, 3);
+  assert.equal(snapshot.value.memory.hiddenSetting, "preserve");
+  const remounted = mountSwitcher(scope, "plugins.bundle.config");
+  const nodes = allNodes(remounted());
+  assert.ok(nodes.some((node) => node.type === "select" && node.props.value === "keyword"));
+  assert.ok(nodes.some((node) => node.type === "select" && node.props.value === "recall"));
+  control("compactionRecall").props.onChange({ target: { checked: false } });
+  save().props.onClick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(snapshot.value.memory.compactionRecall, false);
+  control("recallMaxTopics").props.onChange({ target: { value: "21" } });
+  save().props.onClick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 2, "invalid result limit must not be sent to the host");
 });

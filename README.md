@@ -8,6 +8,50 @@ The plugin follows the DSH language setting (Chinese and English in DSH 0.2.0-rc
 - Index titles are capped at 80 characters and summaries at 240; topic keys remain distinct and full files are unchanged.
 - Existing `topics/core.md` files are preserved without automatic merging. Back them up, inspect them with a file reader, merge resident entries into `core.md`, and rename remaining topic content to another key. New `memory_read({ topic: "core" })` calls read resident core.
 
+## Keyword search and optional recall
+
+With layered memory enabled, `memory_search({ query: "Electron packaging", limit: 5 })`
+searches topic keys, titles, summaries and full bodies, returning keys and summaries
+only. Persona topics override global topics with the same key; missing keys fall
+back to global topics, just like `memory_read(topic)`. English matching is case
+insensitive; Chinese phrases also use overlapping two-character terms. This is
+lexical search, so synonyms without shared text require another query. Search does
+not require automatic recall to be enabled.
+
+The configuration page offers these independent, default-off options:
+
+- `memory.recall: "keyword"`: from the second human message handled by the live
+  plugin, add a `soul:recall` section with possibly relevant keys and summaries.
+  The first message and internal context/compaction summaries do not trigger it.
+- `memory.indexMode: "recall"`: while keyword recall is enabled, replace the full
+  injected topic index with a short search hint. The existing index generation,
+  title/summary bounds, truncation rules and `memory_read()` index stay unchanged.
+- `memory.compactionRecall: true`: after successful compaction or pruning, the
+  next human message restores descriptors for topics read/appended/rewritten in
+  this session. They remain stable for that turn, and clear on the next human
+  turn. Failed compaction does not trigger recovery. Recovery tracks at most the
+  latest 128 topic keys in memory; unloading/restarting the plugin resets state.
+
+Recall and recovery never inject topic bodies. They share `recallMaxChars`
+(default 1600, maximum 8000) and the remaining `injectMaxChars` budget after the
+existing memory section; if core/index uses the budget, no extra rows are added.
+Each group includes at most `recallMaxTopics` (default 5, maximum 20).
+Dynamic descriptors always preserve literal braces, even with `allowTemplates`.
+`memory.inject: false` and `skipSubagents` also suppress `soul:recall`.
+
+Suggested opt-in configuration in the `soul-md` row:
+
+```yaml
+memory:
+  layered: true
+  recall: keyword
+  indexMode: recall
+  compactionRecall: true
+  recallMaxTopics: 5
+  recallMaxChars: 1600
+  injectMaxChars: 24000
+```
+
 ## Configuration page (DSH 0.2.0-rc.2 and later)
 
 Open **Plugins → Installed → dsh-soul-md** from the homepage sidebar to configure and save this plugin. The page uses the official `plugins.bundle.config` interface, without a duplicate entry in global Settings. Web and Desktop share the page. This version requires DSH 0.2.0-rc.2 or a later 0.2.x host; existing configuration is retained.
@@ -29,11 +73,12 @@ Persona + long-term memory for [DeepSeek Harness](https://github.com/deepseek-ai
 - **Persona cards** — the card content is rendered into the system prompt as
   the `soul:persona` section. Multiple cards are supported; pick a default,
   and switch per chat from the **conversation header** (a "人设" select).
-- **Long-term memory** — the agent gets five tools:
+- **Long-term memory** — the agent gets six tools:
   - `memory_append` / `memory_read` / `memory_rewrite` — a persistent memory
     file (Agent.md / memory.md style). The active persona card has its own
     memory; otherwise the global memory is used. In layered mode, their optional
     `topic` argument reads or writes one on-demand topic.
+  - `memory_search` — search layered topic content and return keys and summaries.
   - `soul_read` / `soul_update` — the AI reads and **evolves its own persona
     card**: when it notices a stable trait, preference, or value of its own,
     it folds it into the card. It "grows" across sessions instead of
@@ -48,10 +93,16 @@ Persona + long-term memory for [DeepSeek Harness](https://github.com/deepseek-ai
 Use the Desktop-installed `dsh` command (Application → Manage dsh Command), or the app’s Plugins page. Then install into the Desktop profile:
 
 ```powershell
-dsh plugin --profile desktop add dsh-soul-md@0.8.6
+dsh plugin --profile desktop add dsh-soul-md
 ```
 
 Restart the Desktop app to load the client bundle. Desktop keeps its profile under `$DSH_HOME/profiles/desktop`.
+
+If Hub reports `Cannot find module '...app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js'`,
+the Desktop CLI bootstrap failed before loading this plugin. Reinstall a complete
+official Desktop distribution, or try the official Plugins page (outside Hub).
+Switching this command to the Web profile does not repair the Desktop package.
+See [issue #14](https://github.com/Scorp1o117/dsh-soul-md/issues/14).
 
 
 ## Install
@@ -93,6 +144,11 @@ Then restart `dsh web` and open **Settings → 人设卡**: type a name + conten
 | `memory.maxBytes` | `1048576` | `memory_append` / `memory_rewrite` refuse to exceed this size. |
 | `memory.inject` | `true` | Render the memory as the `soul:memory` prompt section. |
 | `memory.layered` | `false` | Enable progressive disclosure: core plus a topics index. |
+| `memory.recall` | `off` | `off` or `keyword`; automatic topic discovery from the second human message. |
+| `memory.indexMode` | `all` | `all` or `recall`; the latter omits the full injected index only when keyword recall is enabled. |
+| `memory.compactionRecall` | `false` | Restore consulted topic descriptors for the next human turn after successful compaction/pruning. |
+| `memory.recallMaxTopics` | `5` | Results per recall/recovery group, maximum 20. |
+| `memory.recallMaxChars` | `1600` | Combined recall/recovery cap, maximum 8000; also limited by the remaining memory injection budget. |
 | `memory.injectMaxChars` | `8000` | Cap for injected memory content. Single-file mode retains the beginning and recent tail. Layered mode reserves the topic index first, then retains both ends of core. `memory_read` also retains both ends when its response exceeds 20,000 characters. |
 | `memory.order` | `0.5` | Prompt section order for the injected memory section. |
 | `allowTemplates` | `false` | Keep `{{…}}` literal in persona cards and memory by default; when enabled, the host interpolates prompt variables and unknown variables fail rendering. |
