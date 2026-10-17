@@ -1,6 +1,6 @@
 {
     "name": "dsh-soul-md",
-    "version": "0.10.0",
+    "version": "0.10.1",
     "description": "DeepSeek Harness 的 soul.md 风格人设 + 长期记忆插件：设置页输入人设卡名称和内容即可，文件由插件自动管理；可按工作区指定人设、聊天框可给会话单独切人设；AI 可自行演化人设与记忆（soul_read/soul_update/memory_*）。",
     "type": "module",
     "main": "index.js",
@@ -18,7 +18,7 @@
             "platform": "web"
         },
         "compatibility": {
-            "dsh": ">=0.2.0-rc.2 <0.3.0",
+            "dsh": ">=0.2.0-rc.2 <0.3.0 || 0.2.1-rc.1",
             "dshReleases": {
                 "0.1.5-rc.2": "incompatible",
                 "0.1.5-rc.3": "incompatible",
@@ -28,7 +28,8 @@
                 "0.1.7-alpha.2": "unknown",
                 "0.1.7-rc.1": "incompatible",
                 "0.1.7-rc.2": "incompatible",
-                "0.2.0-rc.2": "compatible"
+                "0.2.0-rc.2": "compatible",
+                "0.2.1-rc.1": "compatible"
             },
             "node": ">=20.18",
             "profiles": [
@@ -64,7 +65,8 @@
     ],
     "license": "MIT",
     "engines": {
-        "node": ">=20.18"
+        "node": ">=20.18",
+        "dsh": ">=0.2.0-rc.2 <0.3.0 || 0.2.1-rc.1"
     },
     "repository": {
         "type": "git",
@@ -77,17 +79,17 @@
         "@deepseek-ai/schemastery": "^3.18.4"
     },
     "peerDependencies": {
-        "@deepseek-ai/dsh-home-paths": ">=0.2.0-rc.2 <0.3.0",
-        "@deepseek-ai/dsh-settings": ">=0.2.0-rc.2 <0.3.0",
-        "@deepseek-ai/dsh-tools": ">=0.2.0-rc.2 <0.3.0",
+        "@deepseek-ai/dsh-home-paths": ">=0.2.0-rc.2 <0.3.0 || 0.2.1-rc.1",
+        "@deepseek-ai/dsh-settings": ">=0.2.0-rc.2 <0.3.0 || 0.2.1-rc.1",
+        "@deepseek-ai/dsh-tools": ">=0.2.0-rc.2 <0.3.0 || 0.2.1-rc.1",
         "react": "^18.2.0"
     },
     "devDependencies": {
-        "@deepseek-ai/dsh": "0.2.0-rc.2",
-        "@deepseek-ai/dsh-home-paths": "0.2.0-rc.2",
-        "@deepseek-ai/dsh-settings": "0.2.0-rc.2",
-        "@deepseek-ai/dsh-system-prompt": "0.2.0-rc.2",
-        "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+        "@deepseek-ai/dsh": "0.2.1-rc.1",
+        "@deepseek-ai/dsh-home-paths": "0.2.1-rc.1",
+        "@deepseek-ai/dsh-settings": "0.2.1-rc.1",
+        "@deepseek-ai/dsh-system-prompt": "0.2.1-rc.1",
+        "@deepseek-ai/dsh-tools": "0.2.1-rc.1",
         "react": "18.3.1"
     },
     "scripts": {
