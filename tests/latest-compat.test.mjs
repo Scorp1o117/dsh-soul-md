@@ -24,7 +24,7 @@ test("next host seams are pinned for repeatable development tests", () => {
     "@deepseek-ai/dsh-settings",
     "@deepseek-ai/dsh-tools",
   ]) {
-    assert.equal(manifest.devDependencies[name], "0.2.1-rc.1");
-    assert.equal(manifest.peerDependencies[name], ">=0.2.0-rc.2 <0.3.0 || 0.2.1-rc.1");
+    assert.equal(manifest.devDependencies[name], "0.2.1-rc.2");
+    assert.equal(manifest.peerDependencies[name], ">=0.2.0-rc.2 <0.3.0 || 0.2.1-rc.1 || 0.2.1-rc.2");
   }
 });
