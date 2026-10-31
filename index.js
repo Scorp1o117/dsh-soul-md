@@ -67,6 +67,8 @@ const Config = z.object({
   active: z.string().default(""),
   /** Per-session choice: sessionId -> card name, "none", or "" (follow default). */
   sessions: z.dict(z.string(), z.string()).default({}),
+  /** Show the session persona selector in the conversation header. */
+  showPersonaSwitcher: z.boolean().default(true),
   /** Per-workspace choice: workspace path -> card name, "none", or "" (follow default). */
   workspaces: z.dict(z.string(), z.string()).default({}),
   /** Read-only workspace list (path + title), maintained by the host for the UI. */

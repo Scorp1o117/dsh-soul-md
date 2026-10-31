@@ -6,7 +6,7 @@
 
 ## 功能
 
-- **人设卡**：在插件页创建、编辑并设置默认卡片；聊天中的人设切换器可为单个会话选择卡片。
+- **人设卡**：在插件页创建、编辑并设置默认卡片；聊天中的人设切换器可为单个会话选择卡片，也可以在插件页将其隐藏。
 - **工作区人设**：为工作区指定默认卡片。解析顺序为：会话选择 → 工作区人设 → 默认卡 → 不启用。
 - **文件记忆**：Agent 可使用 `memory_read`、`memory_append`、`memory_rewrite` 读取和维护记忆；`soul_read`、`soul_update` 用于读取和更新人设卡。
 - **可选分层记忆**：将常驻 `core.md` 与按主题读取的 `topics/*.md` 分开，支持 `memory_search` 关键词检索，以及可选的关键词召回和压缩后补偿。
@@ -16,7 +16,7 @@ Soul 的记忆以文件和人设为中心；需要对话捕获、模型提取和
 
 ## 兼容性与安装
 
-支持 DSH Web / Desktop；仓库声明兼容 `0.2.0-rc.2`、`0.2.1-rc.1` / `rc.2` / `rc.3` 和符合 `>=0.2.0-rc.2 <0.3.0` 的版本，预发布版本范围见 [package.json](package.json)。要求 Node.js `>=20.18`。
+支持 DSH Web / Desktop；仓库声明兼容 `0.2.0-rc.2`、`0.2.1-rc.1` / `rc.2` / `rc.3` / `rc.4` / `rc.5` 和符合 `>=0.2.0-rc.2 <0.3.0` 的版本，预发布版本范围见 [package.json](package.json)。要求 Node.js `>=20.18`。
 
 Desktop 先在 **应用 → 管理 dsh 命令** 安装桌面版 `dsh`：
 
@@ -37,6 +37,7 @@ Web 将 `desktop` 改为 `web`。安装后重启 DSH，打开 **插件 → 已�
 
 | 设置 | 默认值 | 作用 |
 | --- | --- | --- |
+| `showPersonaSwitcher` | `true` | 显示会话标题栏的人设选择器；隐藏不会更改已有的会话选择 |
 | `memory.inject` | `true` | 将记忆段落注入提示词 |
 | `memory.layered` | `false` | 启用 core + topics 分层 |
 | `memory.recall` | `off` | 可设为 `keyword`，从插件运行期间的第二条用户消息起提示相关主题 |

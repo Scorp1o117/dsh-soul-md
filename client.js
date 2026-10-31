@@ -146,6 +146,8 @@ window.__ModuleLoader__.load({
       intro: "输入人设卡名称和内容，保存后插件自动管理——文件路径、记忆存放都不用管。人设按 会话选择 → 默认卡 解析，聊天框标题栏可随时切换。",
       cardListTitle: "人设卡",
       cardListHint: "卡片内容会注入系统提示词；聊天框标题栏可给每个会话单独选卡。",
+      showPersonaSwitcher: "在会话标题栏显示人设选择器",
+      showPersonaSwitcherHint: "更改后立即保存。隐藏不会改变已有的会话人设选择；需要时可在这里重新显示。",
       cardName: "人设卡名称",
       cardNameHint: "给这张人设卡起个名字（如：希希芙、工作狂助手）。",
       cardContent: "人设卡内容（Markdown）",
@@ -208,6 +210,8 @@ window.__ModuleLoader__.load({
       intro: "Type a persona card name and content, hit save — the plugin manages everything else (files, memory locations). Persona resolves as session choice > default card; switch per chat from the conversation header.",
       cardListTitle: "Persona cards",
       cardListHint: "Card content is injected into the system prompt; pick one per chat from the conversation header.",
+      showPersonaSwitcher: "Show the persona selector in the conversation header",
+      showPersonaSwitcherHint: "Changes are saved immediately. Hiding the selector preserves existing session choices; turn it back on here when needed.",
       cardName: "Card name",
       cardNameHint: "A name for this card (e.g. 希希芙, workaholic-assistant).",
       cardContent: "Card content (Markdown)",
@@ -286,6 +290,7 @@ window.__ModuleLoader__.load({
       var [memDraft, setMemDraft] = react.useState({});
       var [skipDraft, setSkipDraft] = react.useState(null);
       var [templatesDraft, setTemplatesDraft] = react.useState(null);
+      var [switcherDraft, setSwitcherDraft] = react.useState(null);
       var [busy, setBusy] = react.useState(false);
       var writePending = react.useRef(false);
       var [notice, setNotice] = react.useState(null);
@@ -339,6 +344,7 @@ window.__ModuleLoader__.load({
             setError({ key: "error", detailKey: "notApplied" });
             setMemDraft(function () { return {}; });
             setSkipDraft(null);
+            setSwitcherDraft(null);
             return;
           }
           setNotice({ key: "saved" });
@@ -346,6 +352,7 @@ window.__ModuleLoader__.load({
         }).catch(function (e) {
           writePending.current = false;
           setBusy(false); setSnapshot(scope.getSnapshot());
+          setSwitcherDraft(null);
           setError({ key: "error", detail: String(e && e.message || e) });
         });
       }
@@ -473,6 +480,19 @@ window.__ModuleLoader__.load({
           h("p", { className: "__sm_label", style: { margin: 0 } }, t("cardListTitle")),
           h("p", { className: "__sm_hint", style: { margin: "0 0 2px" } }, t("cardListHint")),
           h("label", { className: "__sm_field" },
+            h("span", { className: "__sm_row" },
+              h("input", { className: "__sm_check", type: "checkbox", checked: switcherDraft !== null ? switcherDraft : value.showPersonaSwitcher !== false, disabled: busy, onChange: function (e) {
+                if (writePending.current) return;
+                var checked = e.target.checked;
+                setSwitcherDraft(checked);
+                runWrite([{ op: "set", path: ["showPersonaSwitcher"], value: checked }], function () { setSwitcherDraft(null); });
+              } }),
+              h("span", { className: "__sm_label" }, t("showPersonaSwitcher"))
+            ),
+            h("span", { className: "__sm_hint" }, t("showPersonaSwitcherHint")),
+            error ? h("span", { className: "__sm_error", role: "alert" }, messageText(t, error)) : null
+          ),
+          h("label", { className: "__sm_field" },
             h("span", { className: "__sm_label" }, t("defaultBadge")),
             h("span", { className: "__sm_hint" }, t("activeHint")),
             h("select", { className: "__sm_input", value: active || "", disabled: busy, onChange: function (e) { var v = e.target.value; if (!v) runWrite([{ op: "unset", path: ["active"] }]); else onSetActive(v); } },
@@ -597,7 +617,7 @@ window.__ModuleLoader__.load({
         return function () { alive = false; if (un) un(); };
       }, [scope]);
       var ready = snapshot.status === "ready" && snapshot.value !== void 0;
-      if (!ready || !sessionId) return null;
+      if (!ready || !sessionId || snapshot.value.showPersonaSwitcher === false) return null;
       var value = snapshot.value;
       var cards = value.cards && typeof value.cards === "object" ? value.cards : {};
       var sessions = value.sessions && typeof value.sessions === "object" ? value.sessions : {};

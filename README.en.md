@@ -6,7 +6,7 @@ Add switchable persona cards and file-based long-term memory to [DeepSeek Harnes
 
 ## Features
 
-- **Persona cards:** create, edit and set a default card in the plugin page; use the chat persona switcher for an individual session.
+- **Persona cards:** create, edit and set a default card in the plugin page; use the chat persona switcher for an individual session, or hide it in plugin settings.
 - **Workspace personas:** assign a default card to a workspace. Resolution order is session selection → workspace persona → default card → disabled.
 - **File memory:** the Agent can use `memory_read`, `memory_append` and `memory_rewrite`; `soul_read` and `soul_update` read and update persona cards.
 - **Optional layered memory:** separate a resident `core.md` from on-demand `topics/*.md`, with `memory_search`, optional keyword recall and post-compaction recall.
@@ -16,7 +16,7 @@ Soul centers memory on files and personas. For conversation capture, model-based
 
 ## Compatibility and installation
 
-Supports DSH Web / Desktop. The repository declares compatibility with `0.2.0-rc.2`, `0.2.1-rc.1` / `rc.2` / `rc.3` and versions matching `>=0.2.0-rc.2 <0.3.0`; see [package.json](package.json) for the complete prerelease range. Node.js `>=20.18` is required.
+Supports DSH Web / Desktop. The repository declares compatibility with `0.2.0-rc.2`, `0.2.1-rc.1` / `rc.2` / `rc.3` / `rc.4` / `rc.5` and versions matching `>=0.2.0-rc.2 <0.3.0`; see [package.json](package.json) for the complete prerelease range. Node.js `>=20.18` is required.
 
 For Desktop, install its `dsh` command through **Application → Manage dsh Command** first:
 
@@ -37,6 +37,7 @@ Replace `desktop` with `web` for Web. Restart DSH and open **Plugins → Install
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
+| `showPersonaSwitcher` | `true` | Show the conversation header selector; hiding it preserves existing session choices |
 | `memory.inject` | `true` | Inject the memory section into the prompt |
 | `memory.layered` | `false` | Enable core + topics |
 | `memory.recall` | `off` | Set to `keyword` to suggest related topics starting with the second user message processed during this plugin run |
