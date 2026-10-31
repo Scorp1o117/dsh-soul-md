@@ -14,8 +14,7 @@ test('one scope serves the namespace, not one per surface', () => {
   const binds = clientSource.match(/ctx\.configForms\.get\(/g) ?? [];
   assert.equal(binds.length, 1, `expected a single bind, found ${binds.length}`);
   assert.match(clientSource, /var scope = ctx\.configForms\.get\("soul-md"\)/);
-  assert.match(clientSource, /\{ scope: scope, t: t, locale: ctx.locale \}/);
-  assert.match(clientSource, /\{ scope: scope, t: t, locale: ctx.locale \}/);
+  assert.match(clientSource, /scope: scope, write: write, t: t, locale: ctx\.locale/);
 });
 
 test('no component writes through an unverified path', () => {

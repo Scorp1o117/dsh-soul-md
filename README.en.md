@@ -6,7 +6,7 @@ Add switchable persona cards and file-based long-term memory to [DeepSeek Harnes
 
 ## Features
 
-- **Persona cards:** create, edit and set a default card in the plugin page; use the chat persona switcher for an individual session, or hide it in plugin settings.
+- **Persona cards:** create, edit and set a default card in the plugin page; select a persona for a session on the new-session page or in the conversation header, or hide the selectors in plugin settings.
 - **Workspace personas:** assign a default card to a workspace. Resolution order is session selection → workspace persona → default card → disabled.
 - **File memory:** the Agent can use `memory_read`, `memory_append` and `memory_rewrite`; `soul_read` and `soul_update` read and update persona cards.
 - **Optional layered memory:** separate a resident `core.md` from on-demand `topics/*.md`, with `memory_search`, optional keyword recall and post-compaction recall.
@@ -17,6 +17,8 @@ Soul centers memory on files and personas. For conversation capture, model-based
 ## Compatibility and installation
 
 Supports DSH Web / Desktop. The repository declares compatibility with `0.2.0-rc.2`, `0.2.1-rc.1` / `rc.2` / `rc.3` / `rc.4` / `rc.5` and versions matching `>=0.2.0-rc.2 <0.3.0`; see [package.json](package.json) for the complete prerelease range. Node.js `>=20.18` is required.
+
+DSH `0.2.0-rc.2` does not have the new-session extension slot; use the conversation header selector there.
 
 For Desktop, install its `dsh` command through **Application → Manage dsh Command** first:
 
@@ -29,7 +31,7 @@ Replace `desktop` with `web` for Web. Restart DSH and open **Plugins → Install
 ## Quick start
 
 1. Create a persona card in the plugin page, enter a name and Markdown content, and save it.
-2. Set it as the default or assign it to a workspace; the chat header can override the persona for one session.
+2. Set it as the default or assign it to a workspace; the new-session page and chat header can override the persona for one session. Switching workspaces can open another blank session, so check that session's selection.
 3. Talk to the Agent and let it use memory or persona tools as needed. Persona updates and memory writes depend on actual model tool calls and are not guaranteed to happen automatically.
 4. Enable layered memory for topic-based organization. Keyword recall and post-compaction recall are separate opt-in settings.
 
@@ -37,7 +39,7 @@ Replace `desktop` with `web` for Web. Restart DSH and open **Plugins → Install
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `showPersonaSwitcher` | `true` | Show the conversation header selector; hiding it preserves existing session choices |
+| `showPersonaSwitcher` | `true` | Show the new-session and conversation-header selectors; hiding them preserves existing session choices |
 | `memory.inject` | `true` | Inject the memory section into the prompt |
 | `memory.layered` | `false` | Enable core + topics |
 | `memory.recall` | `off` | Set to `keyword` to suggest related topics starting with the second user message processed during this plugin run |

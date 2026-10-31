@@ -30,3 +30,10 @@
 - DSH rc.3→rc.5 source comparison found a changed reasoning Body slot, which these plugins do not use. DSH compatibility and SDK peer ranges accept rc.4 and rc.5 while retaining prior declared versions; 0.2.2-alpha.2 is not claimed.
 - Issue #15: the header selector defaults to visible and can be hidden or restored in settings. React tests cover live updates, persistence across remounts, existing session choices, pending writes, and rejected writes; the settings switch was also hidden, reloaded, and restored in both rc.4 and rc.5 Web hosts.
 - Native Desktop, external model calls, publication, and deployment were not exercised.
+
+## 2026-10-31: 0.10.5, new-session persona selection
+
+- The full `npm test` suite passed: 54 cases across the three Node test-runner invocations. Coverage includes both selectors, shared visibility, concurrent writes, failed saves, composer-block ownership, workspace/session changes, and first-prompt persona priority.
+- The packed plugin was installed with the official CLI into isolated Web profiles using DSH 0.2.1-rc.4 and 0.2.1-rc.5. In both hosts, browser checks created a persona, selected it on the new-session page, switched between two workspaces with independent session selections, changed the Agent preset, and hid and restored the selectors. A delayed settings request kept the composer disabled until the save completed; the layout was also checked at a 640 px viewport.
+- The 0.2.0-rc.2 Web host loaded the packed plugin, saved a card, and switched the visibility setting off and on without browser exceptions. That host does not declare the new-session slot; the existing header registration remains in place.
+- These checks did not exercise native Desktop or send a real model request.

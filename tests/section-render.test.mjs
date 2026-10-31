@@ -134,6 +134,21 @@ test("default: a delegated child still receives persona and memory", async (t) =
   assert.match(host.sections.get("soul:memory").text(assembly("subagent")), /resident memory body/);
 });
 
+test("a new session's saved choice is used in its first prompt before workspace and default cards", async (t) => {
+  const { host } = await boot(t, {
+    cards: { D: "default persona", W: "workspace persona", S: "session persona" },
+    active: "D",
+    workspaces: { "C:\\work": "W" },
+    sessions: { "session-1": "S", "session-2": "none" },
+  });
+  const persona = host.sections.get("soul:persona");
+  const forSession = (id, cwd = "C:\\work") => ({ agent: { session: { id, header: { cwd } } } });
+  assert.equal(persona.text(forSession("session-1")), "session persona");
+  assert.equal(persona.text(forSession("session-2")), "");
+  assert.equal(persona.text(forSession("session-3")), "workspace persona");
+  assert.equal(persona.text(forSession("session-4", "C:\\elsewhere")), "default persona");
+});
+
 test("memory tools append/read/rewrite core aliases and inject the resulting core", async (t) => {
   const { host, home } = await boot(t, {
     memory: { inject: true, layered: true, injectMaxChars: 8000, maxBytes: 1048576 },

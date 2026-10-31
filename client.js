@@ -3,8 +3,7 @@
  *
  * Settings section (人设卡): a simple persona-card manager — type a card
  * name and content, save, and the plugin handles the rest. Plus a per-session
- * persona switcher in the conversation header
- * (`conversation.session.header.actions`).
+ * persona switcher in the conversation header and the new-session row.
  *
  * Hand-written ModuleLoader bundle — no build step required.
  */
@@ -43,7 +42,8 @@ window.__ModuleLoader__.load({
       ".__sm_badge{border:1px solid var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);border-radius:999px;padding:0 8px;font-size:10px;white-space:nowrap}" +
       ".__sm_switch{display:inline-flex;align-items:center;gap:6px;font-size:12px;margin-right:8px}" +
       ".__sm_switchLabel{color:var(--dsw-alias-label-tertiary);white-space:nowrap}" +
-      ".__sm_switchSelect{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);border-radius:8px;padding:3px 6px;font:inherit;font-size:12px;max-width:180px}";
+      ".__sm_switchSelect{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);border-radius:8px;padding:3px 6px;font:inherit;font-size:12px;max-width:180px}" +
+      ".__sm_switchHero{margin-right:0;min-width:0}.__sm_switchHero .__sm_switchSelect{max-width:140px;min-width:0}";
     // Scoped flat controls retain native keyboard and form behavior.
     CSS += `
 .dsh-flat.__sm_root{width:100%;max-width:720px;gap:14px;font-size:13px;line-height:1.65;color:var(--dsw-alias-label-primary);--flat-accent:var(--dsw-alias-state-business-primary,#3964fe);--flat-border:var(--dsw-alias-border-l2,#dce2eb)}
@@ -138,16 +138,54 @@ window.__ModuleLoader__.load({
         return settingsOpsApplied(scope.getSnapshot(), ops);
       });
     }
+    // The settings scope queues wire requests, but callers that build a whole
+    // sessions map before that queue runs can otherwise overwrite each other.
+    // Serialize plugin writes and construct session edits from the latest view.
+    function createSettingsWriter(scope) {
+      var tail = null;
+      return function (ops) {
+        function write() {
+          try { return Promise.resolve(commitSettingsOps(scope, typeof ops === "function" ? ops() : ops)); }
+          catch (error) { return Promise.reject(error); }
+        }
+        var pending = tail ? tail.then(write) : write();
+        var current = pending.then(function () {}, function () {});
+        tail = current;
+        current.then(function () { if (tail === current) tail = null; });
+        return pending;
+      };
+    }
+
+    // The host exposes one composer block per session, shared with other
+    // plugins. Never replace someone else's block or clear one we do not own.
+    function holdComposer(blocks, sessionId, reason) {
+      if (!blocks || typeof blocks.storeFor !== "function" || typeof blocks.set !== "function") return function () {};
+      var store = blocks.storeFor(sessionId);
+      if (!store || typeof store.getSnapshot !== "function" || typeof store.subscribe !== "function") return function () {};
+      var block = { reason: reason };
+      var active = true;
+      var ensure = function () {
+        if (active && store.getSnapshot() === void 0) blocks.set(sessionId, block);
+      };
+      var unsubscribe = store.subscribe(ensure);
+      ensure();
+      return function () {
+        if (!active) return;
+        active = false;
+        unsubscribe();
+        if (store.getSnapshot() === block) blocks.set(sessionId, void 0);
+      };
+    }
     var zh = {
       nav: "人设卡",
       confirmDelete: '删除人设卡“{name}”？',
       invalidCardName: "请输入人设卡名称",
       invalidCardContent: "请输入人设卡内容",
-      intro: "输入人设卡名称和内容，保存后插件自动管理——文件路径、记忆存放都不用管。人设按 会话选择 → 默认卡 解析，聊天框标题栏可随时切换。",
+      intro: "输入人设卡名称和内容，保存后插件自动管理。人设按会话选择 → 工作区人设 → 默认卡解析，可在新会话页或聊天标题栏切换。",
       cardListTitle: "人设卡",
-      cardListHint: "卡片内容会注入系统提示词；聊天框标题栏可给每个会话单独选卡。",
-      showPersonaSwitcher: "在会话标题栏显示人设选择器",
-      showPersonaSwitcherHint: "更改后立即保存。隐藏不会改变已有的会话人设选择；需要时可在这里重新显示。",
+      cardListHint: "卡片内容会注入系统提示词；可为每个会话单独选卡。",
+      showPersonaSwitcher: "显示会话人设选择器",
+      showPersonaSwitcherHint: "更改后立即保存。关闭后新会话页和聊天标题栏都不显示；已有会话选择不受影响。",
       cardName: "人设卡名称",
       cardNameHint: "给这张人设卡起个名字（如：希希芙、工作狂助手）。",
       cardContent: "人设卡内容（Markdown）",
@@ -162,7 +200,7 @@ window.__ModuleLoader__.load({
       noActive: "（未设置默认卡，人设未启用）",
       activeHint: "没有会话级选择时使用的人设卡；选「不启用」则默认关闭人设。",
       noneOption: "不启用",
-      autoOption: "自动（跟随默认卡）",
+      autoOption: "自动（跟随工作区或默认卡）",
       saved: "已保存",
       saving: "保存中…",
       error: "操作失败",
@@ -189,6 +227,8 @@ window.__ModuleLoader__.load({
       memoryMaxBytesHint: "单份记忆文件大小上限。",
       switchLabel: "人设",
       switchTitle: "切换当前会话的人设（会话级，优先于工作区/默认卡）",
+      heroSwitchTitle: "选择当前会话的人设。切换工作区可能打开另一个会话，请确认人设。",
+      savingPersona: "正在保存会话人设…",
       wsTitle: "工作区人设",
       wsHint: "给每个工作区指定人设卡：该工作区的会话默认使用这张卡（会话级切换仍然优先）。",
       wsFollow: "跟随默认卡",
@@ -207,11 +247,11 @@ window.__ModuleLoader__.load({
       confirmDelete: 'Delete persona card "{name}"?',
       invalidCardName: "Enter a persona card name",
       invalidCardContent: "Enter persona card content",
-      intro: "Type a persona card name and content, hit save — the plugin manages everything else (files, memory locations). Persona resolves as session choice > default card; switch per chat from the conversation header.",
+      intro: "Save a persona card and the plugin manages its files. Persona resolves as session choice > workspace persona > default card; choose one on the new-session page or in the conversation header.",
       cardListTitle: "Persona cards",
-      cardListHint: "Card content is injected into the system prompt; pick one per chat from the conversation header.",
-      showPersonaSwitcher: "Show the persona selector in the conversation header",
-      showPersonaSwitcherHint: "Changes are saved immediately. Hiding the selector preserves existing session choices; turn it back on here when needed.",
+      cardListHint: "Card content is injected into the system prompt; choose one for each session.",
+      showPersonaSwitcher: "Show the session persona selector",
+      showPersonaSwitcherHint: "Changes save immediately. Turning this off hides both selectors and preserves existing session choices.",
       cardName: "Card name",
       cardNameHint: "A name for this card (e.g. 希希芙, workaholic-assistant).",
       cardContent: "Card content (Markdown)",
@@ -226,7 +266,7 @@ window.__ModuleLoader__.load({
       noActive: "(no default card; persona disabled)",
       activeHint: "The card used when a session has no explicit choice; pick \"disabled\" to turn the persona off by default.",
       noneOption: "Disabled",
-      autoOption: "Auto (follow default)",
+      autoOption: "Auto (workspace or default)",
       saved: "Saved",
       saving: "Saving…",
       error: "Operation failed",
@@ -253,6 +293,8 @@ window.__ModuleLoader__.load({
       memoryMaxBytesHint: "Max size of one memory file.",
       switchLabel: "Persona",
       switchTitle: "Switch this session's persona (session-level, overrides workspace/default)",
+      heroSwitchTitle: "Choose this session's persona. Switching workspaces may open another session; check its selection.",
+      savingPersona: "Saving session persona…",
       wsTitle: "Workspace personas",
       wsHint: "Assign a persona card per workspace: sessions of that workspace use it by default (session-level switching still wins).",
       wsFollow: "Follow default",
@@ -336,7 +378,7 @@ window.__ModuleLoader__.load({
         if (writePending.current) return;
         writePending.current = true;
         setBusy(true); setNotice0();
-        commitSettingsOps(scope, ops).then(function (ok) {
+        props.write(ops).then(function (ok) {
           writePending.current = false;
           setBusy(false);
           setSnapshot(scope.getSnapshot());
@@ -592,7 +634,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    // ── per-session persona switcher (conversation header) ──────────────────
+    // ── per-session persona switcher ───────────────────────────────────────
     function PersonaSwitcher(props) {
       useLocale(props.locale);
       var t = props.t;
@@ -601,6 +643,7 @@ window.__ModuleLoader__.load({
       var [snapshot, setSnapshot] = react.useState(function () { return scope.getSnapshot(); });
       var [busy, setBusy] = react.useState(false);
       var [error, setError] = react.useState(null);
+      var [draft, setDraft] = react.useState(null);
       var writePending = react.useRef(false);
       react.useEffect(function () {
         // No refresh call here: the scope's public seam has no load(). Reads ride
@@ -630,24 +673,32 @@ window.__ModuleLoader__.load({
         setBusy(true);
         setError(null);
         var v = e.target.value;
-        var next = Object.assign({}, sessions);
-        if (v === "") delete next[sessionId];
-        else next[sessionId] = v;
-        commitSettingsOps(scope, [{ op: "set", path: ["sessions"], value: next }]).then(function (ok) {
+        setDraft(v);
+        var release = props.hero ? props.holdComposer(sessionId, t("savingPersona")) : function () {};
+        props.write(function () {
+          var current = scope.getSnapshot();
+          if (!current || current.status !== "ready" || !current.value) throw new Error(t("unavailable"));
+          var next = Object.assign({}, current.value.sessions || {});
+          if (v === "") delete next[sessionId];
+          else next[sessionId] = v;
+          return [{ op: "set", path: ["sessions"], value: next }];
+        }).then(function (ok) {
           writePending.current = false;
           setBusy(false);
+          setDraft(null);
           setSnapshot(scope.getSnapshot());
           if (!ok) setError({ key: "error", detailKey: "notApplied" });
         }).catch(function (e) {
           writePending.current = false;
           setBusy(false);
+          setDraft(null);
           setSnapshot(scope.getSnapshot());
           setError({ key: "error", detail: String(e && e.message || e) });
-        });
+        }).finally(release);
       }
-      return h("label", { className: "__sm_switch", title: t("switchTitle") },
+      return h("label", { className: props.hero ? "__sm_switch __sm_switchHero" : "__sm_switch", title: t(props.hero ? "heroSwitchTitle" : "switchTitle") },
         h("span", { className: "__sm_switchLabel" }, t("switchLabel")),
-        h("select", { className: "__sm_switchSelect", value: choice, disabled: busy, onChange: onChange },
+        h("select", { className: "__sm_switchSelect", value: draft !== null ? draft : choice, disabled: busy, onChange: onChange },
           h("option", { value: "" }, t("autoOption")),
           h("option", { value: "none" }, t("noneOption")),
           cardNames.map(function (n) {
@@ -677,20 +728,32 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       var t = ctx.locale.bind(NS);
       ctx.effect(function () { return ctx.locale.register(NS, { zh: zh, en: en }); }, "dsh-soul-md: dictionaries");
-      // ONE scope for the namespace, shared by this section and the conversation
-      // header switcher. Two binds would each keep their own revision
+      // ONE scope for the namespace, shared by the section and both switchers.
+      // Two binds would each keep their own revision
       // bookkeeping (`pendingRevision`, write queue) over one Host document, so a
       // write from the header and one from this section could each fence against
       // a revision the other had already superseded — the Host refuses the stale
       // write and the scope still settles it as success.
       var scope = ctx.configForms.get("soul-md");
+      var write = createSettingsWriter(scope);
+      var heldComposers = new Set();
+      function hold(sessionId, reason) {
+        var conversation = typeof ctx.get === "function" ? ctx.get("conversation") : void 0;
+        var release = holdComposer(conversation && conversation.blocks, sessionId, reason);
+        function done() { heldComposers.delete(done); release(); }
+        heldComposers.add(done);
+        return done;
+      }
+      ctx.effect(function () {
+        return function () { Array.from(heldComposers).forEach(function (release) { release(); }); };
+      }, "dsh-soul-md: release composer blocks");
       ctx.slots.inject("plugins.bundle.config", function () {
         return ctx.slots.register({
           name: "plugins.bundle.config",
           key: "dsh-soul-md",
           locale: NS
         }, function (props) {
-          return h(SoulSection, Object.assign({}, props, { scope: scope, t: t, locale: ctx.locale }));
+          return h(SoulSection, Object.assign({}, props, { scope: scope, write: write, t: t, locale: ctx.locale }));
         });
       });
       ctx.slots.inject("conversation.session.header.actions", function () {
@@ -699,7 +762,16 @@ window.__ModuleLoader__.load({
           id: "soul-md-persona",
           order: 40
         }, function (props) {
-          return h(PersonaSwitcher, Object.assign({}, props, { scope: scope, t: t, locale: ctx.locale }));
+          return h(PersonaSwitcher, Object.assign({}, props, { key: props.sessionId, scope: scope, write: write, t: t, locale: ctx.locale }));
+        });
+      });
+      ctx.slots.inject("conversation.hero.options", function () {
+        return ctx.slots.register({
+          name: "conversation.hero.options",
+          id: "soul-md-persona-hero",
+          order: 40
+        }, function (props) {
+          return h(PersonaSwitcher, Object.assign({}, props, { key: props.sessionId, scope: scope, write: write, t: t, locale: ctx.locale, hero: true, holdComposer: hold }));
         });
       });
     }
