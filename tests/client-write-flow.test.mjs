@@ -86,6 +86,26 @@ function allNodes(tree) {
   return [tree, ...(tree?.children ?? []).flatMap(allNodes)].filter((node) => node && typeof node === "object");
 }
 
+test("settings show the new defaults without rewriting an untouched configuration", async () => {
+  const snapshot = { status: "ready", writable: true, revision: 1, value: { cards: {}, memory: {} } };
+  let calls = 0;
+  const scope = { getSnapshot: () => snapshot, async mutate() { calls++; return true; } };
+  const render = mountSwitcher(scope, "plugins.bundle.config");
+  const field = (key) => allNodes(render()).find((node) => node.props?.key === key);
+  const control = (key) => allNodes(field(key)).find((node) => node.type === "select" || node.type === "input");
+  assert.equal(control("layered").props.checked, true);
+  assert.equal(control("recall").props.value, "keyword");
+  assert.equal(control("recallPlacement").props.value, "context");
+  assert.equal(control("indexMode").props.value, "all");
+  assert.equal(control("compactionRecall").props.checked, true);
+  const skipLabel = allNodes(render()).find((node) => node.type === "label"
+    && allNodes(node).some((child) => child.children?.includes("fieldSkipSubagents")));
+  assert.equal(allNodes(skipLabel).find((node) => node.type === "input").props.checked, true);
+  allNodes(render()).filter((node) => node.type === "button" && node.children.includes("save")).at(-1).props.onClick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 0);
+});
+
 test("recall selectors and recovery toggle save through one revision fence and survive remount", async () => {
   const snapshot = { status: "ready", writable: true, revision: 1, value: {
     cards: {}, memory: { inject: true, layered: true, recall: "off", indexMode: "all", compactionRecall: false, hiddenSetting: "preserve" },
@@ -105,6 +125,7 @@ test("recall selectors and recovery toggle save through one revision fence and s
   const field = (key) => allNodes(render()).find((node) => node.props?.key === key);
   const control = (key) => allNodes(field(key)).find((node) => node.type === "select" || node.type === "input");
   control("recall").props.onChange({ target: { value: "keyword" } });
+  control("recallPlacement").props.onChange({ target: { value: "system" } });
   control("indexMode").props.onChange({ target: { value: "recall" } });
   control("compactionRecall").props.onChange({ target: { checked: true } });
   control("recallMaxTopics").props.onChange({ target: { value: "3" } });
@@ -113,6 +134,7 @@ test("recall selectors and recovery toggle save through one revision fence and s
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls, 1);
   assert.equal(snapshot.value.memory.recall, "keyword");
+  assert.equal(snapshot.value.memory.recallPlacement, "system");
   assert.equal(snapshot.value.memory.indexMode, "recall");
   assert.equal(snapshot.value.memory.compactionRecall, true);
   assert.equal(snapshot.value.memory.recallMaxTopics, 3);

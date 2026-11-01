@@ -211,17 +211,20 @@ window.__ModuleLoader__.load({
       memoryTitle: "长期记忆（插件托管）",
       memoryIntro: "AI 用 memory_append / memory_read / memory_rewrite 读写记忆：当前人设卡有自己的记忆，没选卡时用全局记忆。记忆文件由插件自动管理。",
       memoryInjectHint: "把记忆渲染为 soul:memory 提示词段落（AI 可随时读到记忆）。",
-      memoryLayeredHint: "默认关闭。开启后优先保留 topics/*.md 的标题和摘要索引；core.md 超过注入上限时保留首尾。AI 可用 memory_read(topic) 按需读取全文。",
+      memoryLayeredHint: "默认开启。优先保留 topics/*.md 的标题和摘要索引；core.md 超过注入上限时保留首尾。AI 可用 memory_read(topic) 按需读取全文。",
       fieldMemoryRecall: "自动关键词召回",
-      memoryRecallHint: "默认关闭；从第二条用户消息起检索主题正文，只提示 key 和摘要。关键词匹配不等于语义检索。",
+      memoryRecallHint: "默认使用关键词；从第二条用户消息起检索主题正文，只提示 key 和摘要。关键词匹配不等于语义检索。",
+      fieldMemoryRecallPlacement: "召回注入位置",
+      memoryRecallPlacementHint: "默认使用运行时上下文以保留稳定的提示词前缀；宿主禁用或不支持时回退到系统提示词。",
+      recallPlacementContext: "运行时上下文（默认）", recallPlacementSystem: "系统提示词",
       fieldMemoryIndexMode: "注入主题索引",
       memoryIndexModeHint: "默认全量索引；仅召回模式须开启关键词召回，可减少主题多时的每轮开销。memory_read 仍返回完整索引。",
       fieldMemoryCompactionRecall: "压缩后补偿已查阅主题",
-      memoryCompactionRecallHint: "默认关闭；成功压缩或裁剪后的下一条用户消息，提示本会话已读写主题的 key 和摘要。仅在当前进程有效，不注入全文。",
+      memoryCompactionRecallHint: "默认开启；成功压缩或裁剪后的下一条用户消息，提示本会话已读写主题的 key 和摘要。仅在当前进程有效，不注入全文。",
       fieldMemoryRecallMaxTopics: "每组召回主题上限（最多 20）",
       fieldMemoryRecallMaxChars: "召回与压缩补偿总字符上限（最多 8000）",
       recallOff: "关闭", recallKeyword: "关键词", indexAll: "全量索引", indexRecall: "仅召回",
-      skipSubagentsHint: "默认关闭。开启后，DSH 以 origin: \"subagent\" 创建的委派子会话不再收到 soul:persona / soul:memory 两段提示词；子代理的工具仍使用它原本的人设卡与记忆作用域，只是不再自动注入。",
+      skipSubagentsHint: "默认开启。DSH 以 origin: \"subagent\" 创建的委派子会话不再自动接收人设与记忆；子代理的工具仍使用它原本的人设卡与记忆作用域。",
       allowTemplatesHint: "默认关闭，花括号原样保留。仅当卡片或记忆需要使用 {{cwd}} 等宿主变量时开启；未知变量仍会使提示词渲染失败。",
       memoryMaxCharsHint: "注入段落的字符上限；超限时保留首尾，全文可用 memory_read 读取。",
       memoryMaxBytesHint: "单份记忆文件大小上限。",
@@ -277,17 +280,20 @@ window.__ModuleLoader__.load({
       memoryTitle: "Long-term memory (plugin-managed)",
       memoryIntro: "The AI reads/writes memory with memory_append / memory_read / memory_rewrite: the active persona card has its own memory, otherwise the global memory is used. Files are managed by the plugin.",
       memoryInjectHint: "Also render the memory as the soul:memory prompt section (the agent always sees its memory).",
-      memoryLayeredHint: "Off by default. The topics/*.md title and summary index takes priority; if core.md exceeds the injection cap, its beginning and end remain visible. memory_read(topic) retrieves full topic text on demand.",
+      memoryLayeredHint: "On by default. The topics/*.md title and summary index takes priority; if core.md exceeds the injection cap, its beginning and end remain visible. memory_read(topic) retrieves full topic text on demand.",
       fieldMemoryRecall: "Automatic keyword recall",
-      memoryRecallHint: "Off by default. From the second user message, search topic bodies and inject keys and summaries only. Lexical matching is not semantic search.",
+      memoryRecallHint: "Keyword recall is on by default. From the second user message, search topic bodies and inject keys and summaries only. Lexical matching is not semantic search.",
+      fieldMemoryRecallPlacement: "Recall placement",
+      memoryRecallPlacementHint: "Runtime context preserves the stable prompt prefix by default. Falls back to the system prompt when the host disables or does not support runtime context.",
+      recallPlacementContext: "Runtime context (default)", recallPlacementSystem: "System prompt",
       fieldMemoryIndexMode: "Injected topic index",
       memoryIndexModeHint: "Full index by default. Recall-only mode requires keyword recall and reduces per-turn topic overhead. memory_read still returns the full index.",
       fieldMemoryCompactionRecall: "Recall consulted topics after compaction",
-      memoryCompactionRecallHint: "Off by default. The next user message after successful compaction/pruning restores keys and summaries of topics read/written in this session. Process-local; no full bodies injected.",
+      memoryCompactionRecallHint: "On by default. The next user message after successful compaction/pruning restores keys and summaries of topics read/written in this session. Process-local; no full bodies injected.",
       fieldMemoryRecallMaxTopics: "Topic limit per recall group (up to 20)",
       fieldMemoryRecallMaxChars: "Combined recall/recovery character cap (up to 8000)",
       recallOff: "Off", recallKeyword: "Keyword", indexAll: "Full index", indexRecall: "Recall only",
-      skipSubagentsHint: "Off by default. When enabled, sessions DSH created as delegated children (origin: subagent) no longer receive the soul:persona / soul:memory sections. The child tools keep the same persona card and memory scope - only the prompt injection is skipped.",
+      skipSubagentsHint: "On by default. Sessions DSH created as delegated children (origin: subagent) do not automatically receive persona or memory prompts. Child tools keep the same persona card and memory scope.",
       allowTemplatesHint: "Off by default so braces remain literal. Enable only if cards or memory need host variables such as {{cwd}}; unknown variables will still fail prompt rendering.",
       memoryMaxCharsHint: "Cap for the injected section (chars); truncation retains both ends. Use memory_read for the full text.",
       memoryMaxBytesHint: "Max size of one memory file.",
@@ -313,6 +319,7 @@ window.__ModuleLoader__.load({
       { key: "inject", label: "fieldMemoryInject", type: "checkbox", hint: "memoryInjectHint" },
       { key: "layered", label: "fieldMemoryLayered", type: "checkbox", hint: "memoryLayeredHint" },
       { key: "recall", label: "fieldMemoryRecall", type: "select", options: [["off", "recallOff"], ["keyword", "recallKeyword"]], hint: "memoryRecallHint" },
+      { key: "recallPlacement", label: "fieldMemoryRecallPlacement", type: "select", options: [["context", "recallPlacementContext"], ["system", "recallPlacementSystem"]], hint: "memoryRecallPlacementHint" },
       { key: "indexMode", label: "fieldMemoryIndexMode", type: "select", options: [["all", "indexAll"], ["recall", "indexRecall"]], hint: "memoryIndexModeHint" },
       { key: "compactionRecall", label: "fieldMemoryCompactionRecall", type: "checkbox", hint: "memoryCompactionRecallHint" },
       { key: "recallMaxTopics", label: "fieldMemoryRecallMaxTopics", type: "number", max: 20 },
@@ -320,7 +327,7 @@ window.__ModuleLoader__.load({
       { key: "injectMaxChars", label: "fieldMemoryInjectMaxChars", type: "number", hint: "memoryMaxCharsHint" },
       { key: "maxBytes", label: "fieldMemoryMaxBytes", type: "number", hint: "memoryMaxBytesHint" }
     ];
-    var MEMORY_DEFAULTS = { inject: true, layered: false, recall: "off", indexMode: "all", compactionRecall: false, recallMaxTopics: 5, recallMaxChars: 1600, injectMaxChars: 8000, maxBytes: 1048576 };
+    var MEMORY_DEFAULTS = { inject: true, layered: true, recall: "keyword", recallPlacement: "context", indexMode: "all", compactionRecall: true, recallMaxTopics: 5, recallMaxChars: 1600, injectMaxChars: 8000, maxBytes: 1048576 };
 
     function SoulSection(props) {
       useLocale(props.locale);
@@ -440,7 +447,7 @@ window.__ModuleLoader__.load({
         runWrite([{ op: "set", path: ["active"], value: name }]);
       }
 
-      function skipValue() { return skipDraft !== null ? skipDraft : Boolean(value.skipSubagents); }
+      function skipValue() { return skipDraft !== null ? skipDraft : Boolean(value.skipSubagents ?? true); }
       function templatesValue() { return templatesDraft !== null ? templatesDraft : Boolean(value.allowTemplates); }
       function memDraftValue(f) {
         var m = memDraft[f.key];
@@ -480,7 +487,7 @@ window.__ModuleLoader__.load({
         if (!next) { setError({ key: "error", detailKey: "invalidMemoryNumber" }); return; }
         var base = memBase();
         var nextSkip = skipValue();
-        var baseSkip = Boolean(value.skipSubagents);
+        var baseSkip = Boolean(value.skipSubagents ?? true);
         var nextTemplates = templatesValue();
         var baseTemplates = Boolean(value.allowTemplates);
         if (JSON.stringify(next) === JSON.stringify(base) && nextSkip === baseSkip && nextTemplates === baseTemplates) {

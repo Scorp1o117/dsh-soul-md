@@ -37,3 +37,10 @@
 - The packed plugin was installed with the official CLI into isolated Web profiles using DSH 0.2.1-rc.4 and 0.2.1-rc.5. In both hosts, browser checks created a persona, selected it on the new-session page, switched between two workspaces with independent session selections, changed the Agent preset, and hid and restored the selectors. A delayed settings request kept the composer disabled until the save completed; the layout was also checked at a 640 px viewport.
 - The 0.2.0-rc.2 Web host loaded the packed plugin, saved a card, and switched the visibility setting off and on without browser exceptions. That host does not declare the new-session slot; the existing header registration remains in place.
 - These checks did not exercise native Desktop or send a real model request.
+
+## 2026-11-01: 0.11.0, runtime recall and defaults
+
+- The full `npm test` suite passed, including placement switching, the new default settings, preserved explicit settings, old single-file memory seeding, long-core recall budget and user-interface defaults.
+- The actual DSH system-prompt assemblers from 0.2.0-rc.2, 0.2.1-rc.3 and 0.2.1-rc.5 were exercised against the plugin. Tests cover literal braces, a stable system prefix as recall changes, context refresh on hosts that support it, and system fallback when runtime context is suppressed. These are assembler integration tests, not full-host tests for every version.
+- The packed plugin installed with the official rc.5 DSH CLI into a fresh isolated Web profile; profile composition succeeded and the authenticated Web root returned HTTP 200. The default settings were also rendered and exercised in the component tests.
+- The MiniMax synthetic cache comparison that motivated the change is documented separately in the local benchmark. Native Desktop and a real-model request through this packaged plugin were not exercised for this release.

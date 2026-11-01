@@ -50,6 +50,8 @@ const NS = "soul-md";
 /** Section names; deliberately distinct from the registry-owned `deployment:persona`. */
 const SECTION_PERSONA = "soul:persona";
 const SECTION_MEMORY = "soul:memory";
+const SECTION_RECALL = "soul:recall";
+const RECALL_VARIABLE = "soul_md_recall";
 /** Back-compat export name for the persona section. */
 const SECTION_NAME = SECTION_PERSONA;
 
@@ -82,18 +84,20 @@ const Config = z.object({
     maxBytes: z.number().default(1024 * 1024),
     /** Also render the memory file as a `soul:memory` system-prompt section. */
     inject: z.boolean().default(true),
-    /** Opt-in progressive disclosure: core.md is injected; topics/*.md become an index. */
-    layered: z.boolean().default(false),
+    /** Progressive disclosure: core.md is injected; topics/*.md become an index. */
+    layered: z.boolean().default(true),
     /** Cap for the injected memory section (chars, from the file head). */
     injectMaxChars: z.number().default(8000),
-    /** Optional keyword recall; defaults keep the existing stable prefix. */
-    recall: z.union([z.const("off"), z.const("keyword")]).default("off"),
+    /** Surface relevant topic summaries from the second user message. */
+    recall: z.union([z.const("off"), z.const("keyword")]).default("keyword"),
+    /** Keep changing recall after the stable prompt, or use the legacy system section. */
+    recallPlacement: z.union([z.const("context"), z.const("system")]).default("context"),
     /** Hide the full injected index only while keyword recall is on. */
     indexMode: z.union([z.const("all"), z.const("recall")]).default("all"),
     recallMaxTopics: z.number().default(5),
     recallMaxChars: z.number().default(1600),
     /** Restore descriptors for topics consulted this session after compaction. */
-    compactionRecall: z.boolean().default(false),
+    compactionRecall: z.boolean().default(true),
     /** Prompt section order for the injected memory section. */
     order: z.number().default(0.5),
     // ── legacy (kept for schema compatibility; ignored) ──────────────────
@@ -110,8 +114,8 @@ const Config = z.object({
   allowTemplates: z.boolean().default(false),
   watch: z.boolean().default(true),
   debounceMs: z.number().default(300),
-  /** Skip persona + memory injection in delegated child sessions (opt-in; default keeps v0.7 behavior). */
-  skipSubagents: z.boolean().default(false),
+  /** Keep delegated child prompts focused; their memory tools retain their scope. */
+  skipSubagents: z.boolean().default(true),
   soulMaxBytes: z.number().default(64 * 1024),
   personas: z.object({
     dir: z.string().default(""),
@@ -136,6 +140,9 @@ function apply(ctx, config) {
   let wsWatcher = undefined;
 
   const cfg = () => (sourceGetter ? sourceGetter() : typeof config.get === "function" ? config.get() : config);
+  const layeredEnabled = (c = cfg()) => c.memory?.layered !== false;
+  const recallMode = (c = cfg()) => c.memory?.recall ?? "keyword";
+  const recoveryEnabled = (c = cfg()) => c.memory?.compactionRecall !== false;
 
   /** Synchronous mtime-cached read; null when missing/unreadable. */
   const readCached = (file) => {
@@ -209,14 +216,14 @@ function apply(ctx, config) {
     const cardName = cardNameOf(agent);
     const scope = cardName ?? "global";
     return {
-      ...memoryLayout.writeTarget(scope, { layered: Boolean(cfg().memory?.layered), topic }),
+      ...memoryLayout.writeTarget(scope, { layered: layeredEnabled(), topic }),
       scope,
     };
   };
 
   /** First EXISTING memory along the chain (read/inject path). */
   const memoryReadChain = (agent, topic = "") => memoryLayout.readChain(memoryScopes(agent), {
-    layered: Boolean(cfg().memory?.layered),
+    layered: layeredEnabled(),
     topic,
   });
 
@@ -233,7 +240,7 @@ function apply(ctx, config) {
     return state;
   };
   const rememberTopic = (agent, source, topic) => {
-    if (!topic || !cfg().memory?.compactionRecall) return;
+    if (!topic || !recoveryEnabled()) return;
     const state = stateOf(agent, true);
     if (!state) return;
     const key = `${source}\0${topic}`;
@@ -254,8 +261,8 @@ function apply(ctx, config) {
   // not to the following step or turn.
   ctx.on("agent/inbox/claimed", ({ agent, message, turn }) => {
     const c = cfg();
-    if (message.source?.kind !== "user" || !c.memory?.layered
-      || (c.memory.recall !== "keyword" && !c.memory.compactionRecall)
+    if (message.source?.kind !== "user" || !layeredEnabled(c)
+      || (recallMode(c) !== "keyword" && !recoveryEnabled(c))
       || skipsSubagentSections(c, agent)) return;
     const state = stateOf(agent, true);
     if (!state || state.seen.has(message.id)) return;
@@ -264,7 +271,7 @@ function apply(ctx, config) {
     state.count += 1;
     state.query = message.content.filter((block) => block.type === "text")
       .map((block) => block.text).join("\n").slice(0, 2000);
-    if (c.memory.compactionRecall && state.pending) state.recovery = [...state.consulted.values()];
+    if (recoveryEnabled(c) && state.pending) state.recovery = [...state.consulted.values()];
     else if (state.turn !== turn) state.recovery = [];
     state.turn = turn;
     state.pending = false;
@@ -272,7 +279,7 @@ function apply(ctx, config) {
   // compaction/* are durable session events in DSH 0.2, not independent
   // Cordis notifications. Failed compaction must not trigger recovery.
   ctx.on("session/event", (session, event) => {
-    if (!cfg().memory?.compactionRecall) return;
+    if (!recoveryEnabled()) return;
     const state = recallStates.get(session);
     if (state && (event.type === "compaction/prune"
       || (event.type === "compaction/end" && event.data.error === undefined))) state.pending = true;
@@ -292,12 +299,21 @@ function apply(ctx, config) {
     if (!c.memory?.inject) return "";
     if (skipsSubagentSections(c, assembly?.agent)) return "";
     const { text, index: fullIndex } = memoryReadChain(assembly?.agent);
-    const index = c.memory.layered && c.memory.recall === "keyword" && c.memory.indexMode === "recall"
+    const index = layeredEnabled(c) && recallMode(c) === "keyword" && c.memory?.indexMode === "recall"
       ? "Use memory_search(query) to find topic keys and summaries; memory_read(topic) retrieves full text."
       : fullIndex;
     const rendered = [text, index].filter(Boolean).join("\n\n");
     if (!rendered) return "";
-    const cap = Math.max(0, Math.floor(c.memory.injectMaxChars ?? 8000));
+    const totalCap = Math.max(0, Math.floor(c.memory.injectMaxChars ?? 8000));
+    // Keep a stable share of the budget for changing recall when topics exist.
+    // Reserving it even on turns without a match keeps the system prefix fixed.
+    const hasRecall = layeredEnabled(c) && (recallMode(c) === "keyword" || recoveryEnabled(c))
+      && boundedInteger(c.memory?.recallMaxTopics, 5, 20) > 0
+      && searchableTopics(assembly?.agent).length > 0;
+    const reserved = hasRecall ? Math.min(
+      boundedInteger(c.memory?.recallMaxChars, 1600, 8000), Math.floor(totalCap / 4),
+    ) : 0;
+    const cap = totalCap - reserved;
     if (rendered.length <= cap) return rendered;
     if (!index) {
       return retainMemoryEnds(rendered, cap) + "\n\n> 部分记忆未注入（已保留首尾），请用 memory_read 读取全文 / part of memory omitted (beginning and end retained); use memory_read for the full text.";
@@ -315,17 +331,17 @@ function apply(ctx, config) {
 
   const renderMemoryRecall = (assembly) => {
     const c = cfg();
-    if (!c.memory?.inject || !c.memory.layered || skipsSubagentSections(c, assembly?.agent)) return "";
+    if (!c.memory?.inject || !layeredEnabled(c) || skipsSubagentSections(c, assembly?.agent)) return "";
     const state = stateOf(assembly?.agent);
     if (!state) return "";
     const topics = searchableTopics(assembly.agent);
     const limit = boundedInteger(c.memory.recallMaxTopics, 5, 20);
-    const recovered = c.memory.compactionRecall && limit ? state.recovery.flatMap((entry) => {
+    const recovered = recoveryEnabled(c) && limit ? state.recovery.flatMap((entry) => {
       const topic = topics.find((topic) => topic.key === entry.key && topic.source === entry.source);
       return topic ? [topic] : [];
     }).slice(-limit) : [];
     const recoveredKeys = new Set(recovered.map((topic) => topic.key));
-    const recalled = c.memory.recall === "keyword" && state.count >= 2
+    const recalled = recallMode(c) === "keyword" && state.count >= 2
       ? searchTopics(topics, state.query, readCached, limit).filter((topic) => !recoveredKeys.has(topic.key)) : [];
     const remaining = Math.max(0, boundedInteger(c.memory.injectMaxChars, 8000, Number.MAX_SAFE_INTEGER)
       - renderMemory(assembly).length - 2);
@@ -334,6 +350,40 @@ function apply(ctx, config) {
       { heading: "可能相关的记忆，仅供参考 / Possibly relevant memory; verify with memory_read:", topics: recalled },
     ], Math.min(remaining, boundedInteger(c.memory.recallMaxChars, 1600, 8000)));
   };
+
+  const recallEnabled = () => recallMode() === "keyword" || recoveryEnabled();
+  const wantsRecallContext = () => cfg().memory?.recallPlacement !== "system";
+  const supportsRecallContext = () => typeof ctx.systemPrompt.context === "function";
+
+  // If the host suppresses runtime contexts, preserve recall in its previous
+  // system-prompt position. A registered but empty context is still present in
+  // the assembly, so it does not trigger this fallback on ordinary turns.
+  ctx.on("system-prompt/assemble", (assembly, context) => {
+    if (!recallEnabled() || !wantsRecallContext() || !supportsRecallContext()
+      || !Array.isArray(assembly.contexts) || !Array.isArray(assembly.sections)) return assembly;
+    const recall = assembly.contexts.find((entry) => entry.name === SECTION_RECALL);
+    if (recall) {
+      if (recall.interpolate === false) return assembly;
+      // DSH 0.2.0-rc.2 discards context.interpolate. Substitute the resolved
+      // recall as one variable: host interpolation does not rescan its value.
+      // Newer hosts retain interpolate:false and refresh the provider directly.
+      const variables = { ...assembly.variables };
+      let variable = RECALL_VARIABLE;
+      for (let i = 1; Object.hasOwn(variables, variable); i++) variable = `${RECALL_VARIABLE}_${i}`;
+      variables[variable] = recall.text;
+      return { ...assembly, variables, contexts: assembly.contexts.map((entry) =>
+        entry === recall ? { ...entry, text: `{{${variable}}}` } : entry) };
+    }
+    if (assembly.sections.some((entry) => entry.name === SECTION_RECALL)) return assembly;
+    const text = renderMemoryRecall(context);
+    if (!text) return assembly;
+    const sections = [...assembly.sections];
+    const memoryIndex = sections.findIndex((entry) => entry.name === SECTION_MEMORY);
+    sections.splice(memoryIndex < 0 ? sections.length : memoryIndex + 1, 0, {
+      name: SECTION_RECALL, text, interpolate: false,
+    });
+    return { ...assembly, sections };
+  });
 
   // ── prompt sections (function text: resolved per assembly, hot by nature) ──
   const sectionDisposers = { persona: null, memory: null, recall: null };
@@ -363,10 +413,11 @@ function apply(ctx, config) {
       text: renderMemory,
       interpolate: cfg().allowTemplates === true,
     });
-    if (cfg().memory?.recall === "keyword" || cfg().memory?.compactionRecall) {
-      sectionDisposers.recall = ctx.systemPrompt.section({
-        name: "soul:recall",
-        order: (cfg().memory?.order ?? 0.5) + 0.01,
+    if (recallEnabled()) {
+      const runtime = wantsRecallContext() && supportsRecallContext();
+      sectionDisposers.recall = ctx.systemPrompt[runtime ? "context" : "section"]({
+        name: SECTION_RECALL,
+        order: runtime ? 300 : (cfg().memory?.order ?? 0.5) + 0.01,
         text: renderMemoryRecall,
         interpolate: false,
       });
@@ -606,7 +657,7 @@ function apply(ctx, config) {
       if (!content) throw new Error("memory_append: `content` must be non-empty");
       const section = String(args.section ?? "").trim();
       const topic = normalizeMemoryTopic(args.topic);
-      if (topic && !cfg().memory?.layered) {
+      if (topic && !layeredEnabled()) {
         throw new Error("memory_append: `topic` requires memory.layered to be enabled");
       }
       const d = new Date();
@@ -661,7 +712,7 @@ function apply(ctx, config) {
     isConcurrencySafe: () => true,
     async execute(args, exec) {
       const topic = normalizeMemoryTopic(args.topic);
-      if (topic && !cfg().memory?.layered) {
+      if (topic && !layeredEnabled()) {
         throw new Error("memory_read: `topic` requires memory.layered to be enabled");
       }
       const { exists, text, index, source, topic: resolvedTopic = "" } = memoryReadChain(agentOf(exec), topic);
@@ -705,7 +756,7 @@ function apply(ctx, config) {
     },
     isConcurrencySafe: () => true,
     async execute(args, exec) {
-      if (!cfg().memory?.layered) throw new Error("memory_search requires memory.layered to be enabled");
+      if (!layeredEnabled()) throw new Error("memory_search requires memory.layered to be enabled");
       const query = String(args.query ?? "").trim();
       if (!query) throw new Error("memory_search: `query` must be non-empty");
       return { matches: searchTopics(searchableTopics(agentOf(exec)), query, readCached,
@@ -737,7 +788,7 @@ function apply(ctx, config) {
     async execute(args, exec) {
       const content = String(args.content ?? "");
       const topic = normalizeMemoryTopic(args.topic);
-      if (topic && !cfg().memory?.layered) {
+      if (topic && !layeredEnabled()) {
         throw new Error("memory_rewrite: `topic` requires memory.layered to be enabled");
       }
       const bytes = byteLen(content);

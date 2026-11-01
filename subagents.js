@@ -2,8 +2,8 @@
  * Delegated-child helpers for the persona/memory sections.
  *
  * DSH stamps a delegated child session with `origin: "subagent"` on its session
- * header at creation. That is all this module needs: when the user opts in
- * (`skipSubagents`), the persona and memory sections render empty for children,
+ * header at creation. By default (`skipSubagents`), persona and memory
+ * sections render empty for children,
  * so a child that only does one small job does not carry the parent's card and
  * long-term memory every turn.
  *
@@ -21,9 +21,9 @@ function isDelegatedChild(agent) {
   }
 }
 
-/** Opt-in gate: should the persona/memory sections be skipped for this agent? */
+/** Should persona/memory injection be skipped for this delegated child? */
 function skipsSubagentSections(config, agent) {
-  return Boolean(config?.skipSubagents) && isDelegatedChild(agent);
+  return config?.skipSubagents !== false && isDelegatedChild(agent);
 }
 
 export { isDelegatedChild, skipsSubagentSections };

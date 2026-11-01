@@ -4,7 +4,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { renderPrompt } from "@deepseek-ai/dsh-system-prompt";
+import { Context } from "@deepseek-ai/cordis";
+
+const promptModule = await import(process.env.DSH_PROMPT_TEST_MODULE || "@deepseek-ai/dsh-system-prompt");
+const { SystemPrompt, renderContextSections, renderContextSnapshot, renderPrompt } = promptModule;
 
 const CARD_BODY = "persona card body";
 const CORE_BODY = "# core\n\nresident memory body.";
@@ -14,8 +17,10 @@ const CORE_BODY = "# core\n\nresident memory body.";
  * registers, and keeps every effect disposer so the test can tear the plugin
  * down without leaving a watcher or retry timer behind.
  */
-function makeHost(config) {
+function makeHost(config, { noRuntimeContext = false, realPrompt, realCtx } = {}) {
   const sections = new Map();
+  const contexts = new Map();
+  const variables = new Map();
   const tools = new Map();
   const disposers = [];
   const listeners = new Map();
@@ -33,14 +38,29 @@ function makeHost(config) {
   };
   const sctx = { settings, effect: (fn) => track(fn()) };
   const ctx = {
-    systemPrompt: {
+    systemPrompt: realPrompt ?? {
       section(spec) {
         sections.set(spec.name, spec);
         return () => sections.delete(spec.name);
       },
+      ...(!noRuntimeContext ? {
+        context(spec) {
+          contexts.set(spec.name, spec);
+          return () => contexts.delete(spec.name);
+        },
+        variable(name, provider) {
+          variables.set(name, provider);
+          return () => variables.delete(name);
+        },
+      } : {}),
     },
     effect: (fn) => track(fn()),
-    on: (name, listener) => { listeners.set(name, listener); return () => listeners.delete(name); },
+    on: (name, listener) => {
+      listeners.set(name, listener);
+      const dispose = name === "system-prompt/assemble" && realCtx ? realCtx.on(name, listener) : () => {};
+      if (realCtx && name === "system-prompt/assemble") disposers.push(dispose);
+      return () => { listeners.delete(name); dispose(); };
+    },
     inject: (_deps, cb) => {
       // A real host hands the settings scope over asynchronously; keeping that
       // timing also lets apply finish defining its closures before onChange runs.
@@ -62,6 +82,8 @@ function makeHost(config) {
   return {
     ctx,
     sections,
+    contexts,
+    variables,
     tools,
     listeners,
     dispose() {
@@ -103,7 +125,7 @@ const assembly = (origin) => ({ agent: agent(origin) });
 const parentAssembly = () => assembly(undefined);
 
 /** Boot the plugin against a throwaway DSH home. */
-async function boot(t, overrides) {
+async function boot(t, overrides, hostOptions) {
   const home = await mkdtemp(join(tmpdir(), "dsh-soul-md-render-"));
   const previous = process.env.DSH_HOME;
   process.env.DSH_HOME = home;
@@ -118,7 +140,7 @@ async function boot(t, overrides) {
 
   const config = baseConfig(overrides);
   const { apply } = await import("../index.js");
-  const host = makeHost(config);
+  const host = makeHost(config, hostOptions);
   apply(host.ctx, config);
   // Let the injected settings scope arrive before touching the registered parts.
   await new Promise((resolve) => setImmediate(resolve));
@@ -127,7 +149,7 @@ async function boot(t, overrides) {
   return { host, home };
 }
 
-test("default: a delegated child still receives persona and memory", async (t) => {
+test("explicitly allowing subagents retains persona and memory", async (t) => {
   const { host } = await boot(t, {});
 
   assert.equal(host.sections.get("soul:persona").text(assembly("subagent")), CARD_BODY);
@@ -310,7 +332,15 @@ const admit = async (host, actor, messages) => {
   if (messages.length) actor.testTurn = (actor.testTurn ?? 0) + 1;
   for (const message of messages) host.listeners.get("agent/inbox/claimed")({ agent: actor, message, turn: actor.testTurn });
 };
-const recallText = (host, actor) => host.sections.get("soul:recall")?.text({ agent: actor }) ?? "";
+const recallText = (host, actor) => {
+  const section = host.sections.get("soul:recall");
+  if (section) return section.text({ agent: actor });
+  const context = host.contexts.get("soul:recall");
+  if (!context) return "";
+  const assembled = host.listeners.get("system-prompt/assemble")({ sections: [],
+    contexts: [{ name: context.name, text: context.text({ agent: actor }) }], variables: {} }, { agent: actor });
+  return renderContextSections(assembled)[0]?.text ?? "";
+};
 
 test("memory_search finds body-only English and Chinese terms without exposing full bodies", async (t) => {
   const { host, home } = await boot(t, { memory: { layered: true, inject: true, injectMaxChars: 8000 } });
@@ -330,7 +360,8 @@ test("memory_search finds body-only English and Chinese terms without exposing f
   assert.deepEqual((await search("no-match")).matches, []);
   assert.deepEqual((await search("electron", 0)).matches, []);
   await assert.rejects(search("  "), /non-empty/);
-  assert.equal(host.sections.has("soul:recall"), false, "defaults keep the original prompt sections");
+  assert.equal(host.sections.has("soul:recall"), false, "default recall must not alter the system prompt");
+  assert.equal(host.contexts.has("soul:recall"), true);
 });
 
 test("keyword recall starts on the second human message, is stable per step and bounded", async (t) => {
@@ -356,12 +387,34 @@ test("keyword recall starts on the second human message, is stable per step and 
   await admit(host, actor, []);
   assert.equal(recallText(host, actor), recalled);
   assert.equal(host.sections.get("soul:memory").text({ agent: actor }), baseline);
-  assert.equal(host.sections.get("soul:recall").interpolate, false);
+  assert.equal(host.contexts.get("soul:recall").order, 300);
+  assert.equal(host.contexts.get("soul:recall").interpolate, false);
+  assert.match(recalled, /\{\{literal\}\}/, "memory braces must stay literal");
   const read = await host.tools.get("memory_read").execute({}, { agent: actor });
   assert.match(read.content, /Different subject/);
   await admit(host, actor, [humanMessage("3", "unmatched")]);
   assert.equal(recallText(host, actor), "");
   assert.equal(recallText(host, agent()), "", "other session objects must not share recall state");
+});
+
+test("a long core reserves stable budget for default keyword recall", async (t) => {
+  const { host, home } = await boot(t, { memory: { inject: true } });
+  const root = join(home, "soul-md", "memory", "D");
+  await mkdir(root, { recursive: true });
+  await writeFile(join(root, "core.md"), "EARLY " + "x".repeat(12000) + " RECENT", "utf8");
+  await topicFixture(home, "D", "build", "# Build\n\nElectron project summary.\n\nElectron");
+  const actor = agent();
+  const systemBefore = host.sections.get("soul:memory").text({ agent: actor });
+  assert.match(systemBefore, /^EARLY /);
+  assert.match(systemBefore, / RECENT/);
+  await admit(host, actor, [humanMessage("1", "Electron"), humanMessage("2", "Electron")]);
+  const recalled = recallText(host, actor);
+  assert.match(recalled, /Electron project summary/);
+  assert.ok(systemBefore.length + recalled.length + 2 <= 8000);
+  assert.equal(host.sections.get("soul:memory").text({ agent: actor }), systemBefore);
+  await admit(host, actor, [humanMessage("3", "unmatched")]);
+  assert.equal(recallText(host, actor), "");
+  assert.equal(host.sections.get("soul:memory").text({ agent: actor }), systemBefore);
 });
 
 test("compaction recovery waits for a new human message and lasts exactly that turn", async (t) => {
@@ -426,3 +479,102 @@ test("recall respects injection budget, subagent policy and changed persona scop
   config.memory.layered = false;
   await assert.rejects(host.tools.get("memory_search").execute({ query: "Electron" }, { agent: actor }), /layered/);
 });
+
+test("new defaults enable useful memory features and retain explicit old choices", async () => {
+  const { Config } = await import("../index.js");
+  const defaults = Config({}).get();
+  assert.equal(defaults.memory.layered, true);
+  assert.equal(defaults.memory.recall, "keyword");
+  assert.equal(defaults.memory.recallPlacement, "context");
+  assert.equal(defaults.memory.compactionRecall, true);
+  assert.equal(defaults.memory.indexMode, "all");
+  assert.equal(defaults.skipSubagents, true);
+  const explicit = Config({ skipSubagents: false, memory: {
+    layered: false, recall: "off", recallPlacement: "system", compactionRecall: false,
+  } }).get();
+  assert.equal(explicit.skipSubagents, false);
+  assert.equal(explicit.memory.layered, false);
+  assert.equal(explicit.memory.recall, "off");
+  assert.equal(explicit.memory.recallPlacement, "system");
+  assert.equal(explicit.memory.compactionRecall, false);
+});
+
+test("default layered mode reads existing flat memory and preserves it when appending", async (t) => {
+  const { host, home } = await boot(t, { memory: { inject: true } });
+  const actor = agent();
+  assert.match((await host.tools.get("memory_read").execute({}, { agent: actor })).content, /resident memory body/);
+  await host.tools.get("memory_append").execute({ section: "New", content: "new entry" }, { agent: actor });
+  const { readFile } = await import("node:fs/promises");
+  const core = await readFile(join(home, "soul-md", "memory", "D", "core.md"), "utf8");
+  assert.match(core, /resident memory body/);
+  assert.match(core, /new entry/);
+  assert.equal(await readFile(join(home, "soul-md", "memory", "D.md"), "utf8"), CORE_BODY);
+});
+
+test("placement can be switched live and older hosts fall back to the system section", async (t) => {
+  const { host } = await boot(t, { memory: { inject: true, layered: true, recall: "keyword" } });
+  assert.equal(host.contexts.has("soul:recall"), true);
+  assert.equal(host.sections.has("soul:recall"), false);
+  const config = host.ctx.get("settings").register().get();
+  config.memory.recallPlacement = "system";
+  host.listeners.get("settings/document-updated")("soul-md");
+  assert.equal(host.contexts.has("soul:recall"), false);
+  assert.equal(host.sections.get("soul:recall").interpolate, false);
+  config.memory.recallPlacement = "context";
+  host.listeners.get("settings/document-updated")("soul-md");
+  assert.equal(host.sections.has("soul:recall"), false);
+  assert.equal(host.contexts.has("soul:recall"), true);
+
+  const adapt = host.listeners.get("system-prompt/assemble");
+  const adapted = adapt({ sections: [], contexts: [{ name: "soul:recall", text: "literal {{unknown}}" }],
+    variables: { soul_md_recall: "occupied" } }, {});
+  assert.equal(adapted.variables.soul_md_recall, "occupied");
+  assert.equal(renderContextSections(adapted)[0].text, "literal {{unknown}}");
+
+  const legacy = await boot(t, { memory: { inject: true, layered: true, recall: "keyword" } }, { noRuntimeContext: true });
+  assert.equal(legacy.host.sections.get("soul:recall").interpolate, false);
+  assert.equal(legacy.host.contexts.has("soul:recall"), false);
+});
+
+for (const suppressed of [false, true]) {
+  test(`real DSH prompt assembly preserves recall when runtime context is ${suppressed ? "suppressed" : "enabled"}`, async (t) => {
+    const realCtx = new Context();
+    const promptFork = realCtx.plugin(SystemPrompt, { includeHarnessIdentity: false, includeRuntimeContext: !suppressed });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(realCtx.systemPrompt);
+    const { host, home } = await boot(t, { memory: {
+      inject: true, layered: true, recall: "keyword", indexMode: "all", injectMaxChars: 8000,
+    } }, { realPrompt: realCtx.systemPrompt, realCtx });
+    t.after(() => promptFork.dispose());
+    await topicFixture(home, "D", "build", "# Build {{literal}}\n\nSummary {{unknown}}.\n\nElectron");
+    const actor = agent();
+    await admit(host, actor, [humanMessage("1", "Electron")]);
+    const before = await realCtx.systemPrompt.assemble({ agent: actor });
+    const beforeSystem = renderPrompt(before);
+    await admit(host, actor, [humanMessage("2", "Electron")]);
+    const after = await realCtx.systemPrompt.assemble({ agent: actor });
+    const afterSystem = renderPrompt(after);
+    const runtime = renderContextSnapshot(after);
+    if (suppressed) {
+      assert.match(afterSystem, /Build \{\{literal\}\}/);
+      assert.match(afterSystem, /Summary \{\{unknown\}\}/);
+      assert.equal(runtime, "");
+    } else {
+      assert.equal(afterSystem, beforeSystem, "recall must not change the system prefix");
+      assert.match(runtime, /Build \{\{literal\}\}/);
+      assert.match(runtime, /Summary \{\{unknown\}\}/);
+      await admit(host, actor, [humanMessage("3", "unrelated")]);
+      const cleared = await realCtx.systemPrompt.assemble({ agent: actor });
+      assert.equal(renderPrompt(cleared), beforeSystem);
+      assert.equal(renderContextSnapshot(cleared), "");
+      if (typeof realCtx.systemPrompt.refreshContext === "function") {
+        await topicFixture(home, "D", "music", "# Music\n\nPiano notes.\n\nPiano");
+        await admit(host, actor, [humanMessage("refresh", "Piano")]);
+        const refreshed = realCtx.systemPrompt.refreshContext(after, { agent: actor });
+        assert.match(renderContextSnapshot(refreshed), /Piano notes/);
+        assert.doesNotMatch(renderContextSnapshot(refreshed), /Build \{\{literal\}\}/);
+        assert.equal(renderPrompt(refreshed), beforeSystem);
+      }
+    }
+  });
+}

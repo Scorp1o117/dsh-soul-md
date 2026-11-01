@@ -19,14 +19,14 @@ test("only headers stamped origin:subagent count as delegated children", () => {
   );
 });
 
-test("skipping subagent sections requires the opt-in switch", () => {
+test("subagent sections are skipped by default and can be explicitly enabled", () => {
   const child = { session: { header: { origin: "subagent" } } };
   const parent = { session: { header: { origin: "user" } } };
 
-  assert.equal(skipsSubagentSections({}, child), false);
+  assert.equal(skipsSubagentSections({}, child), true);
   assert.equal(skipsSubagentSections({ skipSubagents: false }, child), false);
   assert.equal(skipsSubagentSections({ skipSubagents: true }, child), true);
   assert.equal(skipsSubagentSections({ skipSubagents: true }, parent), false);
   assert.equal(skipsSubagentSections({ skipSubagents: true }, undefined), false);
-  assert.equal(skipsSubagentSections(undefined, child), false);
+  assert.equal(skipsSubagentSections(undefined, child), true);
 });

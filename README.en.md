@@ -9,8 +9,8 @@ Add switchable persona cards and file-based long-term memory to [DeepSeek Harnes
 - **Persona cards:** create, edit and set a default card in the plugin page; select a persona for a session on the new-session page or in the conversation header, or hide the selectors in plugin settings.
 - **Workspace personas:** assign a default card to a workspace. Resolution order is session selection → workspace persona → default card → disabled.
 - **File memory:** the Agent can use `memory_read`, `memory_append` and `memory_rewrite`; `soul_read` and `soul_update` read and update persona cards.
-- **Optional layered memory:** separate a resident `core.md` from on-demand `topics/*.md`, with `memory_search`, optional keyword recall and post-compaction recall.
-- **Subagent control:** optionally skip persona and memory prompt injection for subagents without changing the memory tools' read/write scope.
+- **Layered memory:** separate a resident `core.md` from on-demand `topics/*.md`, with `memory_search`, keyword recall and post-compaction recall enabled by default; each can be turned off.
+- **Subagent control:** skip automatic persona and memory injection for subagents by default without changing the memory tools' scope; inheritance can be enabled in settings.
 
 Soul centers memory on files and personas. For conversation capture, model-based extraction and vector recall, see [DSH TDAI Memory](https://github.com/Scorp1o117/dsh-tdai-memory). The plugins can be used independently.
 
@@ -33,7 +33,7 @@ Replace `desktop` with `web` for Web. Restart DSH and open **Plugins → Install
 1. Create a persona card in the plugin page, enter a name and Markdown content, and save it.
 2. Set it as the default or assign it to a workspace; the new-session page and chat header can override the persona for one session. Switching workspaces can open another blank session, so check that session's selection.
 3. Talk to the Agent and let it use memory or persona tools as needed. Persona updates and memory writes depend on actual model tool calls and are not guaranteed to happen automatically.
-4. Enable layered memory for topic-based organization. Keyword recall and post-compaction recall are separate opt-in settings.
+4. Layered memory, keyword recall and post-compaction recall are enabled by default and can be adjusted independently in settings.
 
 ## Memory and settings
 
@@ -41,15 +41,18 @@ Replace `desktop` with `web` for Web. Restart DSH and open **Plugins → Install
 | --- | --- | --- |
 | `showPersonaSwitcher` | `true` | Show the new-session and conversation-header selectors; hiding them preserves existing session choices |
 | `memory.inject` | `true` | Inject the memory section into the prompt |
-| `memory.layered` | `false` | Enable core + topics |
-| `memory.recall` | `off` | Set to `keyword` to suggest related topics starting with the second user message processed during this plugin run |
+| `memory.layered` | `true` | Enable core + topics; turn off for single-file memory |
+| `memory.recall` | `keyword` | Suggest related topics starting with the second user message processed during this plugin run; set to `off` to disable |
+| `memory.recallPlacement` | `context` | Put changing recall in runtime context by default; choose `system` for the system prompt |
 | `memory.indexMode` | `all` | With keyword recall enabled, `recall` avoids injecting the full topic index every turn |
-| `memory.compactionRecall` | `false` | After successful compaction or trimming, suggest recently used topic summaries on the next user turn |
+| `memory.compactionRecall` | `true` | After successful compaction or trimming, suggest recently used topic summaries on the next user turn |
 | `memory.injectMaxChars` | `8000` | Character budget for memory injection |
 | `allowTemplates` | `false` | Resolve prompt variables in personas and memories; by default braces are preserved literally |
-| `skipSubagents` | `false` | Skip persona and memory prompt injection for subagents |
+| `skipSubagents` | `true` | Skip persona and memory prompt injection for subagents; set to `false` to let them inherit |
 
-Keyword search is lexical, not semantic vector search. Recall supplies topic keys and summaries only; full text requires a tool read, and the injection budget still applies. `topic: "core"` or `"core.md"` targets resident core; existing `topics/core.md` is not moved automatically. Back it up and inspect it before manually reorganizing.
+Keyword search is lexical, not semantic vector search. Recall supplies topic keys and summaries only; full text requires a tool read, and the injection budget still applies. With recall enabled and topics present, up to one quarter of the total budget is reserved for dynamic recall, so a long core does not crowd it out and the system prefix remains stable. The full topic index remains enabled by default so the model can discover topics without a lexical match; with many topics, `recall` index mode reduces resident content. Runtime context uses user-message snapshots. If the host disables or does not support runtime context, recall falls back to the system prompt. Older snapshots may remain in conversation history until compaction. `topic: "core"` or `"core.md"` targets resident core; existing `topics/core.md` is not moved automatically. Back it up and inspect it before manually reorganizing.
+
+Explicitly saved settings keep their values; options not set use the new defaults. Layered memory reads existing single-file memory and preserves its contents when first appending to core.
 
 Persona settings live in the current profile; memory defaults to `$DSH_HOME/soul-md/memory/`. Back up and manage those files as needed. The interface follows the DSH language setting.
 
