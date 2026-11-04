@@ -39,6 +39,7 @@ window.__ModuleLoader__.load({
       ".__sm_cardRow{display:flex;align-items:center;gap:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:6px 10px}" +
       ".__sm_cardName{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
       ".__sm_cardPreview{font-size:11px;color:var(--dsw-alias-label-tertiary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
+      ".__sm_cardMemory{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}" +
       ".__sm_badge{border:1px solid var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);border-radius:999px;padding:0 8px;font-size:10px;white-space:nowrap}" +
       ".__sm_switch{display:inline-flex;align-items:center;gap:6px;font-size:12px;margin-right:8px}" +
       ".__sm_switchLabel{color:var(--dsw-alias-label-tertiary);white-space:nowrap}" +
@@ -184,6 +185,9 @@ window.__ModuleLoader__.load({
       intro: "输入人设卡名称和内容，保存后插件自动管理。人设按会话选择 → 工作区人设 → 默认卡解析，可在新会话页或聊天标题栏切换。",
       cardListTitle: "人设卡",
       cardListHint: "卡片内容会注入系统提示词；可为每个会话单独选卡。",
+      cardMemoryLabel: "记忆",
+      cardMemoryAria: "启用 {name} 的记忆",
+      cardMemoryHint: "每张卡可单独关闭记忆：关闭后不再注入，也不能使用记忆工具；已有文件保留。当前会话中先前注入的内容仍可能存在，彻底隔离请新建会话。",
       showPersonaSwitcher: "显示会话人设选择器",
       showPersonaSwitcherHint: "更改后立即保存。关闭后新会话页和聊天标题栏都不显示；已有会话选择不受影响。",
       cardName: "人设卡名称",
@@ -253,6 +257,9 @@ window.__ModuleLoader__.load({
       intro: "Save a persona card and the plugin manages its files. Persona resolves as session choice > workspace persona > default card; choose one on the new-session page or in the conversation header.",
       cardListTitle: "Persona cards",
       cardListHint: "Card content is injected into the system prompt; choose one for each session.",
+      cardMemoryLabel: "Memory",
+      cardMemoryAria: "Enable memory for {name}",
+      cardMemoryHint: "Turn memory off per card to stop injection and memory-tool access; existing files are kept. Earlier content may remain in the current conversation, so start a new session for isolation.",
       showPersonaSwitcher: "Show the session persona selector",
       showPersonaSwitcherHint: "Changes save immediately. Turning this off hides both selectors and preserves existing session choices.",
       cardName: "Card name",
@@ -371,6 +378,7 @@ window.__ModuleLoader__.load({
       var active = typeof value.active === "string" ? value.active : "";
       var wsList = Array.isArray(value.workspaceList) ? value.workspaceList : [];
       var wsMap = value.workspaces && typeof value.workspaces === "object" ? value.workspaces : {};
+      var disabledCards = Array.isArray(value.memory?.disabledCards) ? value.memory.disabledCards : [];
 
       function setNotice0() { setNotice(null); setError(null); }
 
@@ -440,7 +448,15 @@ window.__ModuleLoader__.load({
         // superseded.
         var ops = [{ op: "set", path: ["cards"], value: next }];
         if (name === active) ops.push({ op: "unset", path: ["active"] });
+        if (disabledCards.indexOf(name) !== -1) ops.push({ op: "set", path: ["memory"], value:
+          Object.assign({}, value.memory || {}, { disabledCards: disabledCards.filter(function (item) { return item !== name; }) }) });
         runWrite(ops);
+      }
+
+      function onCardMemory(name, enabled) {
+        var next = disabledCards.filter(function (item) { return item !== name; });
+        if (!enabled) next.push(name);
+        runWrite([{ op: "set", path: ["memory"], value: Object.assign({}, value.memory || {}, { disabledCards: next }) }]);
       }
 
       function onSetActive(name) {
@@ -528,6 +544,7 @@ window.__ModuleLoader__.load({
         h("div", { className: "__sm_group" },
           h("p", { className: "__sm_label", style: { margin: 0 } }, t("cardListTitle")),
           h("p", { className: "__sm_hint", style: { margin: "0 0 2px" } }, t("cardListHint")),
+          h("p", { className: "__sm_hint" }, t("cardMemoryHint")),
           h("label", { className: "__sm_field" },
             h("span", { className: "__sm_row" },
               h("input", { className: "__sm_check", type: "checkbox", checked: switcherDraft !== null ? switcherDraft : value.showPersonaSwitcher !== false, disabled: busy, onChange: function (e) {
@@ -558,6 +575,12 @@ window.__ModuleLoader__.load({
                     h("span", { className: "__sm_cardName", title: n }, n),
                     n === active ? h("span", { className: "__sm_badge" }, t("defaultBadge")) : null,
                     h("span", { className: "__sm_cardPreview" }, preview),
+                    h("label", { className: "__sm_cardMemory" },
+                      h("input", { className: "__sm_check", type: "checkbox", checked: disabledCards.indexOf(n) === -1,
+                        disabled: busy, "aria-label": t("cardMemoryAria", { name: n }),
+                        onChange: function (e) { onCardMemory(n, e.target.checked); } }),
+                      h("span", null, t("cardMemoryLabel"))
+                    ),
                     h("button", { type: "button", className: "__sm_btn", onClick: function () { onEditCard(n); }, disabled: busy }, t("editCard")),
                     n === active ? null : h("button", { type: "button", className: "__sm_btn", onClick: function () { onSetActive(n); }, disabled: busy }, t("setDefault")),
                     h("button", { type: "button", className: "__sm_btn __sm_btnDanger", onClick: function () { onDeleteCard(n); }, disabled: busy }, t("deleteCard"))

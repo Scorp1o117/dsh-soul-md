@@ -10,6 +10,7 @@ Add switchable persona cards and file-based long-term memory to [DeepSeek Harnes
 - **Workspace personas:** assign a default card to a workspace. Resolution order is session selection → workspace persona → default card → disabled.
 - **File memory:** the Agent can use `memory_read`, `memory_append` and `memory_rewrite`; `soul_read` and `soul_update` read and update persona cards.
 - **Layered memory:** separate a resident `core.md` from on-demand `topics/*.md`, with `memory_search`, keyword recall and post-compaction recall enabled by default; each can be turned off.
+- **Per-persona memory:** memory is enabled for each card by default and can be turned off independently without disabling the persona.
 - **Subagent control:** skip automatic persona and memory injection for subagents by default without changing the memory tools' scope; inheritance can be enabled in settings.
 
 Soul centers memory on files and personas. For conversation capture, model-based extraction and vector recall, see [DSH TDAI Memory](https://github.com/Scorp1o117/dsh-tdai-memory). The plugins can be used independently.
@@ -41,6 +42,7 @@ Replace `desktop` with `web` for Web. Restart DSH and open **Plugins → Install
 | --- | --- | --- |
 | `showPersonaSwitcher` | `true` | Show the new-session and conversation-header selectors; hiding them preserves existing session choices |
 | `memory.inject` | `true` | Inject the memory section into the prompt |
+| `memory.disabledCards` | `[]` | Persona card names with memory disabled; use the switch beside each card in the plugin page |
 | `memory.layered` | `true` | Enable core + topics; turn off for single-file memory |
 | `memory.recall` | `keyword` | Suggest related topics starting with the second user message processed during this plugin run; set to `off` to disable |
 | `memory.recallPlacement` | `context` | Put changing recall in runtime context by default; choose `system` for the system prompt |
@@ -49,6 +51,10 @@ Replace `desktop` with `web` for Web. Restart DSH and open **Plugins → Install
 | `memory.injectMaxChars` | `8000` | Character budget for memory injection |
 | `allowTemplates` | `false` | Resolve prompt variables in personas and memories; by default braces are preserved literally |
 | `skipSubagents` | `true` | Skip persona and memory prompt injection for subagents; set to `false` to let them inherit |
+
+Turn off **Memory** beside a persona card to stop memory injection and recall for that card. All four `memory_*` tools reject calls instead of falling back to global memory, including from delegated subagents and team members. `soul_read` and `soul_update` still work. Memory files are kept and become available again when memory is re-enabled. Tool names may still appear in the tool list. Sessions with no persona card continue to use global memory.
+
+Turning memory off does not remove content already present in the current conversation history, runtime-context snapshots or tool results. Start a new session to isolate those earlier contents.
 
 Keyword search is lexical, not semantic vector search. Recall supplies topic keys and summaries only; full text requires a tool read, and the injection budget still applies. With recall enabled and topics present, up to one quarter of the total budget is reserved for dynamic recall, so a long core does not crowd it out and the system prefix remains stable. The full topic index remains enabled by default so the model can discover topics without a lexical match; with many topics, `recall` index mode reduces resident content. Runtime context uses user-message snapshots. If the host disables or does not support runtime context, recall falls back to the system prompt. Older snapshots may remain in conversation history until compaction. `topic: "core"` or `"core.md"` targets resident core; existing `topics/core.md` is not moved automatically. Back it up and inspect it before manually reorganizing.
 

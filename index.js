@@ -84,6 +84,8 @@ const Config = z.object({
     maxBytes: z.number().default(1024 * 1024),
     /** Also render the memory file as a `soul:memory` system-prompt section. */
     inject: z.boolean().default(true),
+    /** Persona cards that cannot inject or use long-term memory. */
+    disabledCards: z.array(z.string()).default([]),
     /** Progressive disclosure: core.md is injected; topics/*.md become an index. */
     layered: z.boolean().default(true),
     /** Cap for the injected memory section (chars, from the file head). */
@@ -201,6 +203,43 @@ function apply(ctx, config) {
     return { name: cardName, text: cfg().cards[cardName] ?? null };
   };
 
+  /** Return the disabled card for this agent or its delegated ancestry, if any. */
+  const disabledMemoryCard = (agent) => {
+    const disabled = cfg().memory?.disabledCards;
+    if (!Array.isArray(disabled) || disabled.length === 0) return null;
+    const seen = new Set();
+    let current = agent;
+    while (true) {
+      const card = cardNameOf(current);
+      if (card && disabled.includes(card)) return card;
+      let header;
+      try { header = current?.session?.header; } catch { return null; }
+      const parentId = header?.origin === "subagent" ? header.parentSession : undefined;
+      if (typeof parentId !== "string" || !parentId || seen.has(parentId)) return null;
+      seen.add(parentId);
+      let parent;
+      try {
+        parent = ctx.get("agents")?.get?.(parentId);
+        if (!parent) {
+          const session = ctx.get("sessions")?.get?.(parentId);
+          if (session) parent = { session };
+        }
+      } catch { /* resolve the direct parent from its saved session choice */ }
+      if (parent) {
+        current = parent;
+      } else {
+        // Subagents inherit cwd from their parent. This also resolves an
+        // explicit parent-session card if the parent is no longer live.
+        current = { session: { id: parentId, header: { cwd: header.cwd } } };
+      }
+    }
+  };
+
+  const requireMemoryEnabled = (agent) => {
+    const card = disabledMemoryCard(agent);
+    if (card) throw new Error(`Memory is disabled for persona ${JSON.stringify(card)}; enable it in the plugin settings.`);
+  };
+
   /** Managed memory directory (created on demand). */
   const memoryDir = () => join(resolveDshHome(), MEMORY_DIR);
 
@@ -261,6 +300,10 @@ function apply(ctx, config) {
   // not to the following step or turn.
   ctx.on("agent/inbox/claimed", ({ agent, message, turn }) => {
     const c = cfg();
+    if (disabledMemoryCard(agent)) {
+      if (agent?.session) recallStates.delete(agent.session);
+      return;
+    }
     if (message.source?.kind !== "user" || !layeredEnabled(c)
       || (recallMode(c) !== "keyword" && !recoveryEnabled(c))
       || skipsSubagentSections(c, agent)) return;
@@ -297,6 +340,7 @@ function apply(ctx, config) {
   const renderMemory = (assembly) => {
     const c = cfg();
     if (!c.memory?.inject) return "";
+    if (disabledMemoryCard(assembly?.agent)) return "";
     if (skipsSubagentSections(c, assembly?.agent)) return "";
     const { text, index: fullIndex } = memoryReadChain(assembly?.agent);
     const index = layeredEnabled(c) && recallMode(c) === "keyword" && c.memory?.indexMode === "recall"
@@ -331,7 +375,8 @@ function apply(ctx, config) {
 
   const renderMemoryRecall = (assembly) => {
     const c = cfg();
-    if (!c.memory?.inject || !layeredEnabled(c) || skipsSubagentSections(c, assembly?.agent)) return "";
+    if (!c.memory?.inject || !layeredEnabled(c) || disabledMemoryCard(assembly?.agent)
+      || skipsSubagentSections(c, assembly?.agent)) return "";
     const state = stateOf(assembly?.agent);
     if (!state) return "";
     const topics = searchableTopics(assembly.agent);
@@ -358,7 +403,9 @@ function apply(ctx, config) {
   // If the host suppresses runtime contexts, preserve recall in its previous
   // system-prompt position. A registered but empty context is still present in
   // the assembly, so it does not trigger this fallback on ordinary turns.
-  ctx.on("system-prompt/assemble", (assembly, context) => {
+  ctx.on("system-prompt/assemble", async (_assembly, context, next) => {
+    // Cooperate with agent-scoped middleware, including model selection.
+    const assembly = await next();
     if (!recallEnabled() || !wantsRecallContext() || !supportsRecallContext()
       || !Array.isArray(assembly.contexts) || !Array.isArray(assembly.sections)) return assembly;
     const recall = assembly.contexts.find((entry) => entry.name === SECTION_RECALL);
@@ -632,7 +679,7 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "memory_append",
     description:
-      "Append a dated Markdown block to your long-term memory. The target follows your CURRENT scope: the memory of the persona card active for this session, else the global memory. In layered mode, omit topic for always-visible core memory or pass a stable topic key for an on-demand topic file. Use it PROACTIVELY whenever you learn something worth keeping across sessions. Prefer small, self-contained entries over one giant dump.",
+      "Append a dated Markdown block to long-term memory when memory is enabled for the current persona; disabled personas reject the call. The target follows your CURRENT scope: the active persona card's memory, else global memory. In layered mode, omit topic for always-visible core or pass a stable topic key for an on-demand topic file. Prefer small, self-contained entries over one giant dump.",
     parameters: {
       section: { type: "string", required: true, description: "Short heading for the entry, e.g. 用户偏好 / project decision. Use a stable name so related entries group together." },
       content: { type: "string", required: true, description: "The markdown text to remember. Keep it concise and self-contained." },
@@ -653,6 +700,8 @@ function apply(ctx, config) {
     },
     isConcurrencySafe: () => false,
     async execute(args, exec) {
+      const agent = agentOf(exec);
+      requireMemoryEnabled(agent);
       const content = String(args.content ?? "").trim();
       if (!content) throw new Error("memory_append: `content` must be non-empty");
       const section = String(args.section ?? "").trim();
@@ -664,7 +713,7 @@ function apply(ctx, config) {
       const pad = (n) => String(n).padStart(2, "0");
       const heading = `## ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}${section ? ` — ${section}` : ""}`;
       const block = `\n${heading}\n\n${content}\n`;
-      const target = memoryTarget(agentOf(exec), topic);
+      const target = memoryTarget(agent, topic);
       const current = readCached(target.file);
       const inherited = current === null && target.legacySeed ? readCached(target.legacySeed) : null;
       const existing = current ?? inherited ?? "";
@@ -673,6 +722,7 @@ function apply(ctx, config) {
         throw new Error(`memory_append: memory file would exceed maxBytes (${cfg().memory.maxBytes}); consolidate with memory_rewrite first`);
       }
       await ensureParent(target.file);
+      requireMemoryEnabled(agent);
       if (current === null && inherited !== null) await writeFile(target.file, existing + block, "utf8");
       else await appendFile(target.file, block, "utf8");
       fileCache.delete(target.file);
@@ -711,11 +761,13 @@ function apply(ctx, config) {
     },
     isConcurrencySafe: () => true,
     async execute(args, exec) {
+      const agent = agentOf(exec);
+      requireMemoryEnabled(agent);
       const topic = normalizeMemoryTopic(args.topic);
       if (topic && !layeredEnabled()) {
         throw new Error("memory_read: `topic` requires memory.layered to be enabled");
       }
-      const { exists, text, index, source, topic: resolvedTopic = "" } = memoryReadChain(agentOf(exec), topic);
+      const { exists, text, index, source, topic: resolvedTopic = "" } = memoryReadChain(agent, topic);
       const full = [text, index].filter(Boolean).join("\n\n");
       if (!exists || !full) return { exists: false, bytes: 0, truncated: false, source, topic: resolvedTopic, content: "" };
       rememberTopic(agentOf(exec), source, resolvedTopic);
@@ -756,10 +808,12 @@ function apply(ctx, config) {
     },
     isConcurrencySafe: () => true,
     async execute(args, exec) {
+      const agent = agentOf(exec);
+      requireMemoryEnabled(agent);
       if (!layeredEnabled()) throw new Error("memory_search requires memory.layered to be enabled");
       const query = String(args.query ?? "").trim();
       if (!query) throw new Error("memory_search: `query` must be non-empty");
-      return { matches: searchTopics(searchableTopics(agentOf(exec)), query, readCached,
+      return { matches: searchTopics(searchableTopics(agent), query, readCached,
         boundedInteger(args.limit, 5, 20)) };
     },
   }));
@@ -786,6 +840,8 @@ function apply(ctx, config) {
     },
     isConcurrencySafe: () => false,
     async execute(args, exec) {
+      const agent = agentOf(exec);
+      requireMemoryEnabled(agent);
       const content = String(args.content ?? "");
       const topic = normalizeMemoryTopic(args.topic);
       if (topic && !layeredEnabled()) {
@@ -795,8 +851,9 @@ function apply(ctx, config) {
       if (bytes > (cfg().memory?.maxBytes ?? 1024 * 1024)) {
         throw new Error(`memory_rewrite: content exceeds maxBytes (${cfg().memory.maxBytes})`);
       }
-      const target = memoryTarget(agentOf(exec), topic);
+      const target = memoryTarget(agent, topic);
       await ensureParent(target.file);
+      requireMemoryEnabled(agent);
       await writeFile(target.file, content, "utf8");
       fileCache.delete(target.file);
       rememberTopic(agentOf(exec), target.scope, target.topic);

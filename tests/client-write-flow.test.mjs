@@ -7,7 +7,7 @@ const source = await readFile(new URL("../client.js", import.meta.url), "utf8");
 
 function mountSwitcher(scope, surface = "soul-md-persona") {
   let bundle;
-  const window = { __ModuleLoader__: { load(value) { bundle = value; } } };
+  const window = { confirm: () => true, __ModuleLoader__: { load(value) { bundle = value; } } };
   vm.runInNewContext(source, { window });
 
   const state = [];
@@ -85,6 +85,84 @@ test("session switcher reports a refused write, rolls back, and blocks another c
 function allNodes(tree) {
   return [tree, ...(tree?.children ?? []).flatMap(allNodes)].filter((node) => node && typeof node === "object");
 }
+
+function cardRow(render, name) {
+  return allNodes(render()).find((node) => node.props?.className === "__sm_cardRow" && node.props.key === name);
+}
+
+function cardMemoryToggle(render, name) {
+  return allNodes(cardRow(render, name)).find((node) => node.type === "input" && node.props.type === "checkbox");
+}
+
+test("per-card memory toggles preserve other settings and survive remount", async () => {
+  const snapshot = { status: "ready", writable: true, revision: 1, value: {
+    cards: { A: "one", B: "two" }, memory: { disabledCards: ["B"], hiddenSetting: "preserve" },
+  } };
+  let calls = 0;
+  const scope = {
+    getSnapshot: () => snapshot,
+    async mutate(ops, revision) {
+      assert.equal(revision, snapshot.revision);
+      calls++;
+      for (const op of ops) snapshot.value[op.path[0]] = op.value;
+      snapshot.revision++;
+      return true;
+    },
+  };
+  const render = mountSwitcher(scope, "plugins.bundle.config");
+  assert.equal(cardMemoryToggle(render, "A").props.checked, true);
+  assert.equal(cardMemoryToggle(render, "B").props.checked, false);
+  cardMemoryToggle(render, "A").props.onChange({ target: { checked: false } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(Array.from(snapshot.value.memory.disabledCards), ["B", "A"]);
+  assert.equal(snapshot.value.memory.hiddenSetting, "preserve");
+  const remounted = mountSwitcher(scope, "plugins.bundle.config");
+  assert.equal(cardMemoryToggle(remounted, "A").props.checked, false);
+  cardMemoryToggle(remounted, "B").props.onChange({ target: { checked: true } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(Array.from(snapshot.value.memory.disabledCards), ["A"]);
+  assert.equal(cardMemoryToggle(remounted, "B").props.checked, true);
+  assert.equal(calls, 2);
+});
+
+test("a refused per-card memory change leaves the confirmed checkbox state intact", async () => {
+  const snapshot = { status: "ready", writable: true, revision: 1, value: { cards: { A: "one" }, memory: {} } };
+  const scope = { getSnapshot: () => snapshot, async mutate() { return true; } };
+  const render = mountSwitcher(scope, "plugins.bundle.config");
+  cardMemoryToggle(render, "A").props.onChange({ target: { checked: false } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(cardMemoryToggle(render, "A").props.checked, true);
+  assert.ok(allNodes(render()).some((node) => node.props?.role === "alert" && node.children.join(" ").includes("notApplied")));
+});
+
+test("deleting a disabled default card clears its setting in the same revision-fenced write", async () => {
+  const snapshot = { status: "ready", writable: true, revision: 1, value: {
+    cards: { A: "one", B: "two" }, active: "B", memory: { disabledCards: ["A", "B"], inject: true },
+  } };
+  let recorded;
+  const scope = {
+    getSnapshot: () => snapshot,
+    async mutate(ops, revision) {
+      assert.equal(revision, snapshot.revision);
+      recorded = JSON.parse(JSON.stringify(ops));
+      for (const op of ops) {
+        if (op.op === "unset") delete snapshot.value[op.path[0]];
+        else snapshot.value[op.path[0]] = op.value;
+      }
+      snapshot.revision++;
+      return true;
+    },
+  };
+  const render = mountSwitcher(scope, "plugins.bundle.config");
+  allNodes(cardRow(render, "B")).find((node) => node.type === "button" && node.children.includes("deleteCard")).props.onClick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(recorded, [
+    { op: "set", path: ["cards"], value: { A: "one" } },
+    { op: "unset", path: ["active"] },
+    { op: "set", path: ["memory"], value: { disabledCards: ["A"], inject: true } },
+  ]);
+  assert.equal(cardRow(render, "B"), undefined);
+});
 
 test("settings show the new defaults without rewriting an untouched configuration", async () => {
   const snapshot = { status: "ready", writable: true, revision: 1, value: { cards: {}, memory: {} } };

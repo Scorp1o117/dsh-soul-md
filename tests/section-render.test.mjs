@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import fs, { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { Context } from "@deepseek-ai/cordis";
+import { createScope } from "@deepseek-ai/dsh-scope";
+import { agentEvents, assembleContextFor, installModelSelection } from "@deepseek-ai/dsh-agent";
 
 const promptModule = await import(process.env.DSH_PROMPT_TEST_MODULE || "@deepseek-ai/dsh-system-prompt");
 const { SystemPrompt, renderContextSections, renderContextSnapshot, renderPrompt } = promptModule;
@@ -21,6 +24,8 @@ function makeHost(config, { noRuntimeContext = false, realPrompt, realCtx } = {}
   const sections = new Map();
   const contexts = new Map();
   const variables = new Map();
+  const agents = new Map();
+  const sessions = new Map();
   const tools = new Map();
   const disposers = [];
   const listeners = new Map();
@@ -69,6 +74,8 @@ function makeHost(config, { noRuntimeContext = false, realPrompt, realCtx } = {}
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     get(name) {
       if (name === "settings") return settings;
+      if (name === "agents") return { get: (id) => agents.get(id) };
+      if (name === "sessions") return { get: (id) => sessions.get(id) };
       // A ready registry keeps publishWorkspaces from arming its retry timer.
       if (name === "workspaceRegistry") return { list: () => [] };
       return undefined;
@@ -84,6 +91,8 @@ function makeHost(config, { noRuntimeContext = false, realPrompt, realCtx } = {}
     sections,
     contexts,
     variables,
+    agents,
+    sessions,
     tools,
     listeners,
     dispose() {
@@ -332,13 +341,14 @@ const admit = async (host, actor, messages) => {
   if (messages.length) actor.testTurn = (actor.testTurn ?? 0) + 1;
   for (const message of messages) host.listeners.get("agent/inbox/claimed")({ agent: actor, message, turn: actor.testTurn });
 };
-const recallText = (host, actor) => {
+const recallText = async (host, actor) => {
   const section = host.sections.get("soul:recall");
   if (section) return section.text({ agent: actor });
   const context = host.contexts.get("soul:recall");
   if (!context) return "";
-  const assembled = host.listeners.get("system-prompt/assemble")({ sections: [],
-    contexts: [{ name: context.name, text: context.text({ agent: actor }) }], variables: {} }, { agent: actor });
+  const assembly = { sections: [],
+    contexts: [{ name: context.name, text: context.text({ agent: actor }) }], variables: {} };
+  const assembled = await host.listeners.get("system-prompt/assemble")(assembly, { agent: actor }, () => Promise.resolve(assembly));
   return renderContextSections(assembled)[0]?.text ?? "";
 };
 
@@ -376,16 +386,16 @@ test("keyword recall starts on the second human message, is stable per step and 
   assert.doesNotMatch(baseline, /Different subject/);
   assert.match(baseline, /memory_search/);
   await admit(host, actor, [humanMessage("1", "Electron")]);
-  assert.equal(recallText(host, actor), "");
+  assert.equal(await recallText(host, actor), "");
   await admit(host, actor, [humanMessage("2", "ELECTRON")]);
-  const recalled = recallText(host, actor);
+  const recalled = await recallText(host, actor);
   assert.match(recalled, /"build"/);
   assert.match(recalled, /可能相关/);
   assert.doesNotMatch(recalled, /SECRET_BODY|Different subject/);
   assert.ok(recalled.length <= 230);
   assert.ok(baseline.length + recalled.length + 2 <= 700);
   await admit(host, actor, []);
-  assert.equal(recallText(host, actor), recalled);
+  assert.equal(await recallText(host, actor), recalled);
   assert.equal(host.sections.get("soul:memory").text({ agent: actor }), baseline);
   assert.equal(host.contexts.get("soul:recall").order, 300);
   assert.equal(host.contexts.get("soul:recall").interpolate, false);
@@ -393,8 +403,8 @@ test("keyword recall starts on the second human message, is stable per step and 
   const read = await host.tools.get("memory_read").execute({}, { agent: actor });
   assert.match(read.content, /Different subject/);
   await admit(host, actor, [humanMessage("3", "unmatched")]);
-  assert.equal(recallText(host, actor), "");
-  assert.equal(recallText(host, agent()), "", "other session objects must not share recall state");
+  assert.equal(await recallText(host, actor), "");
+  assert.equal(await recallText(host, agent()), "", "other session objects must not share recall state");
 });
 
 test("a long core reserves stable budget for default keyword recall", async (t) => {
@@ -408,12 +418,12 @@ test("a long core reserves stable budget for default keyword recall", async (t) 
   assert.match(systemBefore, /^EARLY /);
   assert.match(systemBefore, / RECENT/);
   await admit(host, actor, [humanMessage("1", "Electron"), humanMessage("2", "Electron")]);
-  const recalled = recallText(host, actor);
+  const recalled = await recallText(host, actor);
   assert.match(recalled, /Electron project summary/);
   assert.ok(systemBefore.length + recalled.length + 2 <= 8000);
   assert.equal(host.sections.get("soul:memory").text({ agent: actor }), systemBefore);
   await admit(host, actor, [humanMessage("3", "unmatched")]);
-  assert.equal(recallText(host, actor), "");
+  assert.equal(await recallText(host, actor), "");
   assert.equal(host.sections.get("soul:memory").text({ agent: actor }), systemBefore);
 });
 
@@ -431,28 +441,28 @@ test("compaction recovery waits for a new human message and lasts exactly that t
   const emit = (type, data = {}) => host.listeners.get("session/event")(actor.session, { type, data });
   emit("compaction/end", { error: "failed" });
   await admit(host, actor, [humanMessage("1", "hi")]);
-  assert.equal(recallText(host, actor), "");
+  assert.equal(await recallText(host, actor), "");
   emit("compaction/end");
   await admit(host, actor, []);
-  assert.equal(recallText(host, actor), "");
+  assert.equal(await recallText(host, actor), "");
   await admit(host, actor, [{ ...humanMessage("summary", "compressed text"), source: { kind: "compaction" } }]);
-  assert.equal(recallText(host, actor), "");
+  assert.equal(await recallText(host, actor), "");
   await admit(host, actor, [humanMessage("2", "continue")]);
-  const recovered = recallText(host, actor);
+  const recovered = await recallText(host, actor);
   assert.match(recovered, /Topics consulted before compaction/);
   assert.match(recovered, /"build"/);
   assert.match(recovered, /"written"/);
   assert.match(recovered, /"rewritten"/);
   assert.doesNotMatch(recovered, /missing|SECRET_BODY/);
   await admit(host, actor, []);
-  assert.equal(recallText(host, actor), recovered);
+  assert.equal(await recallText(host, actor), recovered);
   await admit(host, actor, [humanMessage("3", "continue again")]);
-  assert.equal(recallText(host, actor), "");
+  assert.equal(await recallText(host, actor), "");
   emit("compaction/prune");
   await admit(host, actor, [humanMessage("4", "after prune")]);
-  assert.equal(recallText(host, actor), recovered);
+  assert.equal(await recallText(host, actor), recovered);
   host.listeners.get("session/disposed")(actor.session);
-  assert.equal(recallText(host, actor), "");
+  assert.equal(await recallText(host, actor), "");
 });
 
 test("recall respects injection budget, subagent policy and changed persona scope", async (t) => {
@@ -463,10 +473,10 @@ test("recall respects injection budget, subagent policy and changed persona scop
   await topicFixture(home, "D", "build", "# Build\n\nBrief.\n\nElectron");
   const actor = agent();
   await admit(host, actor, [humanMessage("1", "Electron"), humanMessage("2", "Electron")]);
-  assert.equal(recallText(host, actor), "", "full index uses all available budget");
+  assert.equal(await recallText(host, actor), "", "full index uses all available budget");
   const child = agent("subagent");
   await admit(host, child, [humanMessage("1", "Electron"), humanMessage("2", "Electron")]);
-  assert.equal(recallText(host, child), "");
+  assert.equal(await recallText(host, child), "");
   await host.tools.get("memory_read").execute({ topic: "build" }, { agent: actor });
   host.listeners.get("session/event")(actor.session, { type: "compaction/end", data: {} });
   await admit(host, actor, [humanMessage("3", "continue")]);
@@ -475,7 +485,7 @@ test("recall respects injection budget, subagent policy and changed persona scop
   config.cards.E = "Other persona";
   config.active = "E";
   config.memory.injectMaxChars = 8000;
-  assert.equal(recallText(host, actor), "");
+  assert.equal(await recallText(host, actor), "");
   config.memory.layered = false;
   await assert.rejects(host.tools.get("memory_search").execute({ query: "Electron" }, { agent: actor }), /layered/);
 });
@@ -504,11 +514,79 @@ test("default layered mode reads existing flat memory and preserves it when appe
   const actor = agent();
   assert.match((await host.tools.get("memory_read").execute({}, { agent: actor })).content, /resident memory body/);
   await host.tools.get("memory_append").execute({ section: "New", content: "new entry" }, { agent: actor });
-  const { readFile } = await import("node:fs/promises");
   const core = await readFile(join(home, "soul-md", "memory", "D", "core.md"), "utf8");
   assert.match(core, /resident memory body/);
   assert.match(core, /new entry/);
   assert.equal(await readFile(join(home, "soul-md", "memory", "D.md"), "utf8"), CORE_BODY);
+});
+
+test("disabled card blocks injection and every memory tool before reading or writing files", async (t) => {
+  const { host, home } = await boot(t, { cards: { E: "persona E" }, active: "E", skipSubagents: false,
+    memory: { inject: true, layered: true, recall: "keyword", indexMode: "recall", disabledCards: ["E"] } });
+  const memoryRoot = join(home, "soul-md", "memory");
+  const globalFile = join(memoryRoot, "global.md");
+  await writeFile(globalFile, "GLOBAL PRIVATE MARKER", "utf8");
+  await topicFixture(home, "global", "build", "# Build\n\nPRIVATE SUMMARY\n\nElectron");
+  const actor = agent();
+  const config = host.ctx.get("settings").register().get();
+  const spyNames = ["statSync", "readFileSync", "readdirSync"];
+  const originals = Object.fromEntries(spyNames.map((name) => [name, fs[name]]));
+  let diskReads = 0;
+  for (const name of spyNames) fs[name] = (...args) => {
+    if (String(args[0]).toLowerCase().startsWith(memoryRoot.toLowerCase())) diskReads++;
+    return originals[name](...args);
+  };
+  syncBuiltinESMExports();
+  try {
+    await admit(host, actor, [humanMessage("1", "Electron"), humanMessage("2", "Electron")]);
+    assert.equal(host.sections.get("soul:memory").text({ agent: actor }), "");
+    assert.equal(await recallText(host, actor), "");
+    for (const [name, args] of [
+      ["memory_read", {}], ["memory_search", { query: "Electron" }],
+      ["memory_append", { section: "test", content: "new" }], ["memory_rewrite", { content: "new" }],
+    ]) await assert.rejects(host.tools.get(name).execute(args, { agent: actor }), /Memory is disabled for persona "E"/);
+    assert.equal(diskReads, 0, "disabled memory must not inspect the memory directory");
+  } finally {
+    for (const name of spyNames) fs[name] = originals[name];
+    syncBuiltinESMExports();
+  }
+  assert.equal(await readFile(globalFile, "utf8"), "GLOBAL PRIVATE MARKER");
+  assert.equal(existsSync(join(memoryRoot, "E", "core.md")), false);
+  assert.equal((await host.tools.get("soul_read").execute({}, { agent: actor })).persona, "E");
+  host.ctx.get("settings").update = async (_ns, next) => Object.assign(config, next);
+  await host.tools.get("soul_update").execute({ content: "updated persona" }, { agent: actor });
+  assert.equal(config.cards.E, "updated persona");
+  assert.deepEqual(config.memory.disabledCards, ["E"]);
+
+  config.memory.disabledCards = [];
+  assert.match((await host.tools.get("memory_read").execute({}, { agent: actor })).content, /GLOBAL PRIVATE MARKER/);
+  assert.match(host.sections.get("soul:memory").text({ agent: actor }), /GLOBAL PRIVATE MARKER/);
+  await host.tools.get("memory_append").execute({ section: "test", content: "new" }, { agent: actor });
+  assert.match(await readFile(join(memoryRoot, "E", "core.md"), "utf8"), /new/);
+  config.memory.disabledCards = ["E"];
+  config.sessions[actor.session.id] = "none";
+  assert.match((await host.tools.get("memory_read").execute({}, { agent: actor })).content, /GLOBAL PRIVATE MARKER/);
+});
+
+test("subagents inherit disabled memory from their live or saved parent without changing persona scope", async (t) => {
+  const { host } = await boot(t, { cards: { D: "default", E: "private" }, active: "D", skipSubagents: false,
+    sessions: { parent: "E" }, memory: { inject: true, layered: true, disabledCards: ["E"] } });
+  const parent = { session: { id: "parent", header: { cwd: "C:\\work" } } };
+  const child = { session: { id: "child", header: { cwd: "C:\\work", origin: "subagent", parentSession: "parent" } } };
+  const grandchild = { session: { id: "grandchild", header: { cwd: "C:\\work", origin: "subagent", parentSession: "child" } } };
+  host.agents.set("parent", parent);
+  host.agents.set("child", child);
+  assert.equal((await host.tools.get("soul_read").execute({}, { agent: child })).persona, "D");
+  for (const subject of [parent, child, grandchild]) {
+    assert.equal(host.sections.get("soul:memory").text({ agent: subject }), "");
+    await assert.rejects(host.tools.get("memory_read").execute({}, { agent: subject }), /Memory is disabled/);
+  }
+  host.agents.delete("parent");
+  await assert.rejects(host.tools.get("memory_search").execute({ query: "test" }, { agent: child }), /Memory is disabled/);
+  const config = host.ctx.get("settings").register().get();
+  config.memory.disabledCards = [];
+  const result = await host.tools.get("memory_append").execute({ section: "test", content: "allowed" }, { agent: child });
+  assert.equal(result.scope, "D", "child tools retain their own original card scope");
 });
 
 test("placement can be switched live and older hosts fall back to the system section", async (t) => {
@@ -526,8 +604,9 @@ test("placement can be switched live and older hosts fall back to the system sec
   assert.equal(host.contexts.has("soul:recall"), true);
 
   const adapt = host.listeners.get("system-prompt/assemble");
-  const adapted = adapt({ sections: [], contexts: [{ name: "soul:recall", text: "literal {{unknown}}" }],
-    variables: { soul_md_recall: "occupied" } }, {});
+  const original = { sections: [], contexts: [{ name: "soul:recall", text: "literal {{unknown}}" }],
+    variables: { soul_md_recall: "occupied" } };
+  const adapted = await adapt(original, {}, () => Promise.resolve(original));
   assert.equal(adapted.variables.soul_md_recall, "occupied");
   assert.equal(renderContextSections(adapted)[0].text, "literal {{unknown}}");
 
@@ -576,5 +655,47 @@ for (const suppressed of [false, true]) {
         assert.equal(renderPrompt(refreshed), beforeSystem);
       }
     }
+  });
+}
+
+for (const memory of [
+  { inject: true, layered: true, recall: "keyword", recallPlacement: "context" },
+  { inject: true, layered: true, recall: "keyword", recallPlacement: "system" },
+  { inject: true, layered: true, recall: "off", compactionRecall: false },
+]) {
+  test(`model selection passes through the plugin's prompt middleware (${JSON.stringify(memory)})`, async (t) => {
+    const realCtx = new Context();
+    const promptFork = realCtx.plugin(SystemPrompt, { includeHarnessIdentity: false });
+    await new Promise((resolve) => setImmediate(resolve));
+    const { host } = await boot(t, { memory }, { realPrompt: realCtx.systemPrompt, realCtx });
+    t.after(() => promptFork.dispose());
+    const actor = agent();
+    let previous = { provider: "first-provider", model: "first-model" };
+    actor.session.requestHeader = () => ({ config: previous });
+    const scope = createScope(realCtx, actor);
+    t.after(() => scope.dispose());
+    const selection = { current: { ...previous }, assembled: undefined };
+    const disposeSelection = installModelSelection(scope.ctx, selection);
+    t.after(disposeSelection);
+    const disposeOther = scope.ctx.on("system-prompt/assemble", async (_input, _context, next) => {
+      const assembled = await next();
+      return { ...assembled, variables: { ...assembled.variables, test_downstream: "retained" } };
+    });
+    t.after(disposeOther);
+    const signal = new AbortController().signal;
+    const request = async () => {
+      const assembly = await realCtx.systemPrompt.assemble(assembleContextFor(actor, signal));
+      const resolved = await agentEvents(realCtx, actor).waterfall("agent/request", { turn: 1, step: 1, signal },
+        () => Promise.resolve({ ...previous }));
+      previous = { provider: resolved.provider, model: resolved.model };
+      assert.equal(assembly.variables.test_downstream, "retained");
+      return resolved;
+    };
+    assert.equal((await request()).model, "first-model");
+    selection.current = { provider: "second-provider", model: "second-model" };
+    const switched = await request();
+    assert.equal(switched.provider, "second-provider");
+    assert.equal(switched.model, "second-model");
+    assert.ok(host);
   });
 }

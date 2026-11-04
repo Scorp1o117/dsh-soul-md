@@ -44,3 +44,10 @@
 - The actual DSH system-prompt assemblers from 0.2.0-rc.2, 0.2.1-rc.3 and 0.2.1-rc.5 were exercised against the plugin. Tests cover literal braces, a stable system prefix as recall changes, context refresh on hosts that support it, and system fallback when runtime context is suppressed. These are assembler integration tests, not full-host tests for every version.
 - The packed plugin installed with the official rc.5 DSH CLI into a fresh isolated Web profile; profile composition succeeded and the authenticated Web root returned HTTP 200. The default settings were also rendered and exercised in the component tests.
 - The MiniMax synthetic cache comparison that motivated the change is documented separately in the local benchmark. Native Desktop and a real-model request through this packaged plugin were not exercised for this release.
+
+## 2026-11-04: 0.12.0, per-card memory and model switching
+
+- `npm test` passed all 69 cases. Coverage includes per-card defaults and live changes, rejection before memory-file I/O, no global fallback, unaffected persona tools, delegated ancestry, settings persistence and refused writes.
+- Real DSH system-prompt assemblers from 0.2.0-rc.2, 0.2.1-rc.3 and 0.2.1-rc.5 passed the integration suite, including agent-scoped model selection for context, system and disabled recall configurations. These are assembler tests, not full-host tests for every version.
+- An isolated 0.2.1-rc.5 Web host with a synthetic provider received the newly selected model and provider after same-provider and cross-provider switches. The packaged plugin passed the same tests. A separate synthetic host verified disabled and enabled cards, the four memory tools, persona injection and tool access, and preservation of global memory.
+- The tarball installed through the official CLI into an isolated Web profile, composed successfully and served an authenticated HTTP 200 response. Component tests cover the settings controls; native Desktop and real cloud model calls were not exercised.
