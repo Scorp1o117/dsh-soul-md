@@ -8,6 +8,7 @@ import test from "node:test";
 import { Context } from "@deepseek-ai/cordis";
 import { createScope } from "@deepseek-ai/dsh-scope";
 import { agentEvents, assembleContextFor, installModelSelection } from "@deepseek-ai/dsh-agent";
+import * as agentRuntime from "@deepseek-ai/dsh-agent";
 
 const promptModule = await import(process.env.DSH_PROMPT_TEST_MODULE || "@deepseek-ai/dsh-system-prompt");
 const { SystemPrompt, renderContextSections, renderContextSnapshot, renderPrompt } = promptModule;
@@ -675,16 +676,45 @@ for (const memory of [
     const scope = createScope(realCtx, actor);
     t.after(() => scope.dispose());
     const selection = { current: { ...previous }, assembled: undefined };
-    const disposeSelection = installModelSelection(scope.ctx, selection);
+    const projection = agentRuntime.modelSelectionProjectionDefinition;
+    if (projection) {
+      let state = projection.init();
+      actor.session.append = (type, data) => { state = projection.apply(state, { type, data }); };
+      actor.model = new agentRuntime.AgentModel(() => state, actor.session, previous);
+    }
+    const disposeSelection = projection
+      ? installModelSelection(scope.ctx)
+      : installModelSelection(scope.ctx, selection);
     t.after(disposeSelection);
-    const disposeOther = scope.ctx.on("system-prompt/assemble", async (_input, _context, next) => {
+    const disposeOther = scope.ctx.on("system-prompt/assemble", async (_input, context, next) => {
+      if (projection) assert.deepEqual(context.modelSelection, selection.current);
       const assembled = await next();
       return { ...assembled, variables: { ...assembled.variables, test_downstream: "retained" } };
     });
     t.after(disposeOther);
     const signal = new AbortController().signal;
     const request = async () => {
-      const assembly = await realCtx.systemPrompt.assemble(assembleContextFor(actor, signal));
+      const context = assembleContextFor(actor, signal);
+      if (projection) {
+        actor.model.select(selection.current);
+        const modelSelection = actor.model.current();
+        const assembly = await realCtx.systemPrompt.assemble({ ...context, modelSelection });
+        assert.equal(assembly.variables.test_downstream, "retained");
+        const messages = [humanMessage("1", "Hello")];
+        const decision = await agentEvents(realCtx, actor).waterfall("agent/pre-step",
+          { turn: 1, step: 1, signal, modelSelection, messages },
+          () => Promise.resolve({ kind: "enter", messages }));
+        assert.equal(decision.kind, "enter");
+        const changed = previous.provider !== modelSelection.provider || previous.model !== modelSelection.model;
+        assert.equal(decision.messages.length, changed ? 2 : 1);
+        if (changed) {
+          assert.equal(decision.messages.at(-1).source.kind, "model-selection");
+          assert.match(decision.messages.at(-1).content[0].text, /second-provider\/second-model/);
+        }
+        previous = modelSelection;
+        return modelSelection;
+      }
+      const assembly = await realCtx.systemPrompt.assemble(context);
       const resolved = await agentEvents(realCtx, actor).waterfall("agent/request", { turn: 1, step: 1, signal },
         () => Promise.resolve({ ...previous }));
       previous = { provider: resolved.provider, model: resolved.model };
