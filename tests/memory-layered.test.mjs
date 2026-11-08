@@ -14,7 +14,7 @@ const readText = (file) => {
   }
 };
 
-test("topic metadata uses the first heading and first body line", () => {
+test("consolidated topic metadata uses the first heading and first body line", () => {
   assert.deepEqual(topicDescriptor("fallback", "# Project A\n\nKeeps the launch checklist.\nMore."), {
     key: "fallback",
     title: "Project A",
@@ -22,6 +22,30 @@ test("topic metadata uses the first heading and first body line", () => {
   });
   assert.equal(safeMemoryName("a/b:*?"), "a_b___");
   assert.match(renderTopicIndex([{ key: "project-a", title: "Project A", summary: "Launch notes" }]), /memory_read\(topic\)/);
+});
+
+test("topic metadata uses the last dated entry and keeps its summary within that entry", () => {
+  const entries = [
+    "# PowerShell", "Use Windows PowerShell 5.1.",
+    "## 2026-10-08 — Initial test", "PowerShell 7.6.6 is installed.",
+    "## 2026-11-07 09:30 — Updated guidance", "- Default to pwsh 7.6.9.",
+    "```md", "## 2026-11-08 — Example only", "```",
+    "<!--", "## 2026-11-09 — Comment only", "-->",
+  ];
+  assert.deepEqual(topicDescriptor("powershell", entries.join("\r\n")), {
+    key: "powershell",
+    title: "2026-11-07 09:30 — Updated guidance",
+    summary: "Default to pwsh 7.6.9.",
+  });
+  entries.push("## 2026-11-10 — Heading only", "## History", "### 2026-10-08 — Old", "Old guidance.");
+  assert.deepEqual(topicDescriptor("powershell", entries.join("\n")), {
+    key: "powershell",
+    title: "2026-11-10 — Heading only",
+    summary: "（无摘要 / no summary）",
+  });
+  assert.deepEqual(topicDescriptor("powershell", [
+    "# PowerShell", "> Default to pwsh 7.6.9.", "## History", "### 2026-10-08 — Old", "Old guidance.",
+  ].join("\n")), { key: "powershell", title: "PowerShell", summary: "Default to pwsh 7.6.9." });
 });
 
 test("topic titles and summaries stay bounded without collapsing shared prefixes", () => {

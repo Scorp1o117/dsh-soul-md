@@ -60,6 +60,8 @@ Keyword search is lexical, not semantic vector search. Recall supplies topic key
 
 Explicitly saved settings keep their values; options not set use the new defaults. Layered memory reads existing single-file memory and preserves its contents when first appending to core.
 
+The topic index and recall summaries use the heading and first body line of the last `## YYYY-MM-DD` section, including the timestamped headings written by `memory_append`. Without a dated section, they use the file's first heading and first body line. `memory_append` suggests consolidation when a topic exceeds 8 KiB after an append. To merge duplicates or resolve conflicting conclusions, read the whole topic with `memory_read(topic)`, then use `memory_rewrite` to put the current summary first and move old conclusions into `###` subsections under History.
+
 Persona settings live in the current profile; memory defaults to `$DSH_HOME/soul-md/memory/`. Back up and manage those files as needed. The interface follows the DSH language setting.
 
 ## Development and feedback

@@ -10,13 +10,46 @@ function safeMemoryName(value, fallback = "memory") {
 }
 
 function topicDescriptor(key, text) {
-  const lines = String(text ?? "").split(/\r?\n/);
-  const heading = lines.find((line) => /^#{1,6}\s+\S/.test(line.trim()));
-  const title = (heading ? heading.trim().replace(/^#{1,6}\s+/, "").trim() : key).slice(0, 80);
-  const summaryLine = lines.find((line) => {
+  let firstTitle;
+  let firstBody;
+  let latestEntry;
+  let inEntry = false;
+  let fence;
+  let inComment = false;
+
+  for (const line of String(text ?? "").split(/\r?\n/)) {
     const value = line.trim();
-    return value && !/^#{1,6}\s+/.test(value) && !/^<!--/.test(value);
-  });
+    if (fence) {
+      const closing = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(line)?.[1];
+      if (closing?.startsWith(fence)) fence = undefined;
+      continue;
+    }
+    if (inComment || value.startsWith("<!--")) {
+      inComment = !value.includes("-->");
+      continue;
+    }
+    fence = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence || !value) continue;
+
+    const heading = /^ {0,3}(#{1,6})[ \t]+(\S.*)$/.exec(line.trimEnd());
+    if (heading) {
+      const [, marks, title] = heading;
+      firstTitle ??= title;
+      if (marks.length <= 2) {
+        // memory_append writes level-two entries. Deeper dated headings can
+        // describe history inside a consolidated topic.
+        inEntry = marks.length === 2 && /^\d{4}-\d{2}-\d{2}(?=$|\s|[—–])/.test(title);
+        if (inEntry) latestEntry = { title, body: undefined };
+      }
+      continue;
+    }
+
+    firstBody ??= value;
+    if (inEntry) latestEntry.body ??= value;
+  }
+
+  const title = (latestEntry?.title ?? firstTitle ?? key).slice(0, 80);
+  const summaryLine = latestEntry ? latestEntry.body : firstBody;
   const summary = summaryLine
     ? summaryLine.trim().replace(/^[-*>]\s*/, "").replace(/\s+/g, " ").slice(0, 240)
     : "（无摘要 / no summary）";

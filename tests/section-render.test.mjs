@@ -353,6 +353,33 @@ const recallText = async (host, actor) => {
   return renderContextSections(assembled)[0]?.text ?? "";
 };
 
+test("appending refreshes the index and recall summary and hints when a topic grows large", async (t) => {
+  const { host, home } = await boot(t, { memory: { inject: true, layered: true, indexMode: "recall" } });
+  const actor = agent();
+  const exec = { agent: actor };
+  const append = host.tools.get("memory_append");
+  const read = (args = {}) => host.tools.get("memory_read").execute(args, exec);
+  await topicFixture(home, "D", "powershell", "## 2026-10-08 — Initial test\n\nUse PowerShell 5.1.\n");
+  assert.match((await read()).content, /2026-10-08 — Initial test：Use PowerShell 5\.1\./);
+
+  const recent = await append.execute({ topic: "powershell", section: "Updated guidance", content: "Default to pwsh 7." }, exec);
+  assert.equal(recent.hint, undefined);
+  const index = (await read()).content;
+  assert.match(index, /`powershell` — \d{4}-\d{2}-\d{2} \d{2}:\d{2} — Updated guidance：Default to pwsh 7\./);
+  assert.doesNotMatch(index, /Initial test|PowerShell 5\.1/);
+  assert.match((await read({ topic: "powershell" })).content, /Use PowerShell 5\.1\./);
+
+  await admit(host, actor, [humanMessage("first", "Hello")]);
+  await admit(host, actor, [humanMessage("second", "What about powershell?")]);
+  assert.match(await recallText(host, actor), /Default to pwsh 7\./);
+
+  const large = await append.execute({ topic: "powershell", section: "More details", content: "字".repeat(2800) }, exec);
+  assert.ok(large.totalBytes > 8192);
+  assert.match(large.hint, /memory_rewrite/);
+  assert.match(append.output.render({}, large)[0].text, /memory_rewrite/);
+  assert.match((await read({ topic: "powershell" })).content, /More details\n\n字/);
+});
+
 test("memory_search finds body-only English and Chinese terms without exposing full bodies", async (t) => {
   const { host, home } = await boot(t, { memory: { layered: true, inject: true, injectMaxChars: 8000 } });
   await topicFixture(home, "D", "build", "# Build\n\nSummary only.\n\nSECRET_BODY: Electron 打包后的安装路径。");

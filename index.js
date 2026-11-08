@@ -674,12 +674,13 @@ function apply(ctx, config) {
     await mkdir(dirname(file), { recursive: true });
   };
   const byteLen = (text) => Buffer.byteLength(text, "utf8");
+  const topicConsolidationBytes = 8 * 1024;
   const agentOf = (exec) => exec?.agent ?? null;
 
   ctx.tools.register(defineTool({
     name: "memory_append",
     description:
-      "Append a dated Markdown block to long-term memory when memory is enabled for the current persona; disabled personas reject the call. The target follows your CURRENT scope: the active persona card's memory, else global memory. In layered mode, omit topic for always-visible core or pass a stable topic key for an on-demand topic file. Prefer small, self-contained entries over one giant dump.",
+      "Append a dated Markdown block to long-term memory when memory is enabled for the current persona; disabled personas reject the call. The target follows your CURRENT scope: the active persona card's memory, else global memory. In layered mode, omit topic for always-visible core or pass a stable topic key for an on-demand topic file. Prefer small, self-contained entries. When a topic grows large or entries contradict each other, read it and use memory_rewrite to consolidate, putting the current summary first.",
     parameters: {
       section: { type: "string", required: true, description: "Short heading for the entry, e.g. 用户偏好 / project decision. Use a stable name so related entries group together." },
       content: { type: "string", required: true, description: "The markdown text to remember. Keep it concise and self-contained." },
@@ -694,9 +695,13 @@ function apply(ctx, config) {
           totalBytes: { type: "integer" },
           scope: { type: "string" },
           topic: { type: "string" },
+          hint: { type: "string" },
         },
       },
-      render: (_args, value) => [{ type: "text", text: `Appended to memory (${value.bytes} bytes, ${value.totalBytes} total) in scope "${value.scope}"${value.topic ? ` topic "${value.topic}"` : ""}.` }],
+      render: (_args, value) => [{
+        type: "text",
+        text: `Appended to memory (${value.bytes} bytes, ${value.totalBytes} total) in scope "${value.scope}"${value.topic ? ` topic "${value.topic}"` : ""}.${value.hint ? `\n${value.hint}` : ""}`,
+      }],
     },
     isConcurrencySafe: () => false,
     async execute(args, exec) {
@@ -727,7 +732,11 @@ function apply(ctx, config) {
       else await appendFile(target.file, block, "utf8");
       fileCache.delete(target.file);
       rememberTopic(agentOf(exec), target.scope, target.topic);
-      return { bytes: byteLen(block), totalBytes, scope: target.scope, topic: target.topic };
+      const result = { bytes: byteLen(block), totalBytes, scope: target.scope, topic: target.topic };
+      if (target.topic && totalBytes > topicConsolidationBytes) {
+        result.hint = "This topic exceeds 8 KiB. Consider reading it with memory_read(topic) and consolidating it with memory_rewrite. Put the current summary first.";
+      }
+      return result;
     },
     presentCall: (args) => ({ card: "generic", title: "Append to memory", kind: "other", rawInput: args }),
   }));
