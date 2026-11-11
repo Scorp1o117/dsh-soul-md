@@ -30,6 +30,7 @@
  * validating; on first run the plugin imports the old `path` card and the
  * old memory file into the managed store.
  */
+import { randomUUID } from "node:crypto";
 import { readFileSync, statSync, watch } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join, dirname } from "node:path";
@@ -37,6 +38,7 @@ import z from "@deepseek-ai/schemastery";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { createMemoryLayout, normalizeMemoryTopic, retainMemoryEnds } from "./memory-layout.js";
+import { DIGEST, DIGEST_INSTRUCTIONS, digestContentToText, parseDigestOutput, renderDigestTranscript } from "./digest.js";
 import { skipsSubagentSections } from "./subagents.js";
 import { boundedInteger, renderRecall, searchTopics } from "./memory-recall.js";
 
@@ -871,6 +873,162 @@ function apply(ctx, config) {
   }));
 
   ctx.tools.register(defineTool({
+    name: "memory_digest",
+    description:
+      "Review the recent conversation against the CURRENT memory library and return a CANDIDATE LIST of memory changes (append / rewrite / delete). Runs in an isolated subagent that sees only the memory library and the transcript: it has no tools and writes nothing. Read the candidates yourself and apply the ones you agree with via memory_append / memory_rewrite. Costs one model call; use it at the end of a session that produced durable facts, not every turn. It never proposes skills — that is deliberate.",
+    parameters: {
+      focus: { type: "string", description: "Optional: what this review should pay attention to (e.g. a subsystem that changed)." },
+      maxMessages: { type: "integer", description: "How many recent messages to read (default 40, max 200)." },
+      timeoutSec: { type: "integer", description: "Give up after this many seconds (default 180, max 600)." },
+    },
+    output: {
+      schema: {
+        type: "object", additionalProperties: false,
+        properties: {
+          candidates: { type: "array", items: { type: "object", additionalProperties: true } },
+          note: { type: "string" },
+          raw: { type: "string" },
+          ms: { type: "integer" },
+        },
+      },
+      render: (_args, value) => {
+        const ms = value.ms ?? 0;
+        const note = value.note ? `\n${value.note}` : "";
+        const raw = value.raw ? `\n\n原始输出：\n${value.raw}` : "";
+        if (!value.candidates.length) {
+          return [{ type: "text", text: `memory_digest: 没有候选（${ms} ms）。${note}${raw}` }];
+        }
+        const lines = value.candidates.map((c, i) => [
+          `${i + 1}. [${c.action}] ${c.topic}${c.section ? ` / ${c.section}` : ""}`,
+          c.reason ? `   why: ${c.reason}` : "",
+          c.evidence ? `   evidence: ${c.evidence}` : "",
+          c.content ? `   content: ${c.content}` : "",
+        ].filter(Boolean).join("\n"));
+        return [{
+          type: "text",
+          text: `memory_digest: ${value.candidates.length} 条候选（${ms} ms）——尚未写入，确认后用 memory_append / memory_rewrite 落地。${note}\n\n${lines.join("\n\n")}`,
+        }];
+      },
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      const agent = agentOf(exec);
+      requireMemoryEnabled(agent);
+      if (!layeredEnabled()) throw new Error("memory_digest: requires memory.layered to be enabled");
+      if (!ctx.agents || typeof ctx.agents.create !== "function" || !ctx.agentDefaultModel) {
+        throw new Error("memory_digest: this host does not expose ctx.agents / ctx.agentDefaultModel");
+      }
+      const session = agent?.session;
+      const messages = typeof session?.deriveMessages === "function" ? (session.deriveMessages() || []) : [];
+      if (messages.length === 0) return { candidates: [], note: "当前会话没有可读的消息。", raw: "", ms: 0 };
+
+      const limits = {
+        maxMessages: boundedInteger(args.maxMessages, DIGEST.maxMessages, 200),
+        maxCharsPerMessage: DIGEST.maxCharsPerMessage,
+        maxTranscriptChars: DIGEST.maxTranscriptChars,
+      };
+      const transcript = renderDigestTranscript(messages, limits);
+      if (transcript.trim() === "") return { candidates: [], note: "transcript 为空（没有可读的文本消息）。", raw: "", ms: 0 };
+
+      const chain = memoryReadChain(agent);
+      const candidates = searchableTopics(agent);
+      // searchTopics() returns descriptors only; recover each hit's file from the input list.
+      const fileOf = new Map(candidates.map((topic) => [topic.key, topic.file]));
+      const related = searchTopics(candidates, transcript.slice(-2000), readCached, DIGEST.topTopics);
+      const topicBlocks = related.map((hit) => ({
+        key: hit.key,
+        source: hit.source,
+        text: (readCached(fileOf.get(hit.key)) ?? "").slice(0, DIGEST.topicBodyMax),
+      }));
+      const memoryBlock = [
+        `### core.md（${chain.source}）\n${chain.text || "（空）"}`,
+        chain.index || "",
+        topicBlocks.length
+          ? `### 相关主题全文\n${topicBlocks.map((t) => `#### topic: ${t.key}（${t.source}）\n${t.text}`).join("\n\n---\n\n")}`
+          : "### 相关主题全文\n（没有命中相关主题）",
+      ].filter(Boolean).join("\n\n");
+
+      const focus = String(args.focus ?? "").trim();
+      const prompt = [
+        DIGEST_INSTRUCTIONS,
+        focus ? `\n## 本轮焦点\n${focus}` : "",
+        `\n## 现有记忆库\n${memoryBlock}`,
+        `\n## 最近对话 transcript\n${transcript}`,
+      ].filter(Boolean).join("\n");
+
+      const selection = ctx.agentDefaultModel.currentSelection();
+      const timeoutSec = boundedInteger(args.timeoutSec, DIGEST.timeoutSec, 600);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), Math.max(30, timeoutSec) * 1000);
+      if (typeof timer.unref === "function") timer.unref();
+      const started = Date.now();
+      let finalText = "";
+      let liveText = "";
+      let sub = null;
+      let firstSeq = 0;
+      // snapshotEvents() replaced the bare `events` property in newer hosts;
+      // under spill/trimming it can also come back non-array, so never iterate blindly.
+      const pump = () => {
+        const ses = sub ? sub.session : null;
+        const events = !ses
+          ? []
+          : typeof ses.snapshotEvents === "function"
+            ? (ses.snapshotEvents() || [])
+            : (Array.isArray(ses.events) ? ses.events : []);
+        for (const event of events) {
+          if (event.seq < firstSeq) continue;
+          if (event.type === "assistant/message" && event.data && event.data.message) {
+            const text = digestContentToText(event.data.message.content);
+            if (text.trim() !== "") finalText = text;
+          } else if (event.type === "assistant/chunk" && event.data && event.data.chunk && event.data.chunk.type === "text-delta") {
+            liveText += event.data.chunk.text ?? "";
+          }
+        }
+      };
+      let poller = null;
+      let onAbort = null;
+      try {
+        const handle = await ctx.agents.create({
+          sessionId: `soul-md-digest-${randomUUID()}`,
+          meta: { cwd: session?.header?.cwd, agentPreset: "standard", origin: "subagent" },
+          agentOptions: { provider: selection.provider, model: selection.model },
+          signal: controller.signal,
+          setup: (agentCtx) => { agentCtx.tools.restrict({ allow: [] }); },
+        });
+        sub = handle.agent;
+        firstSeq = sub.session?.seq ?? 0;
+        onAbort = () => { try { sub.cancel({ kind: "parent" }); } catch { /* already gone */ } };
+        controller.signal.addEventListener("abort", onAbort, { once: true });
+        // Poll while running: the final message event survives in most hosts, but streaming
+        // deltas are the fallback when the event log gets trimmed.
+        poller = setInterval(pump, 300);
+        if (typeof poller.unref === "function") poller.unref();
+        sub.followup({ content: [{ type: "text", text: prompt }], source: { kind: "user" } });
+        await sub.whenIdle();
+      } catch (error) {
+        return {
+          candidates: [],
+          note: `复盘子会话失败：${error && error.message ? error.message : String(error)}`,
+          raw: "",
+          ms: Date.now() - started,
+        };
+      } finally {
+        clearTimeout(timer);
+        if (poller) clearInterval(poller);
+        if (onAbort) controller.signal.removeEventListener("abort", onAbort);
+      }
+      pump();
+      if (finalText.trim() === "" && liveText.trim() !== "") finalText = liveText;
+
+      if (controller.signal.aborted) {
+        return { candidates: [], note: `复盘超时（${timeoutSec}s）。`, raw: finalText.slice(0, 2000), ms: Date.now() - started };
+      }
+      const parsed = parseDigestOutput(finalText);
+      return { candidates: parsed.candidates, note: parsed.note, raw: parsed.raw ?? "", ms: Date.now() - started };
+    },
+  }));
+
+  ctx.tools.register(defineTool({
     name: "soul_read",
     description:
       "Read the persona card ACTIVE for your current session (session choice, else the default card), exactly as stored. Use it before soul_update so you know the full current text.",
@@ -939,4 +1097,10 @@ function apply(ctx, config) {
   }));
 }
 
+// ── memory digest: review memory against the recent transcript ─────────────
+// The one thing a turn-finalizer did that this plugin lacked: a second pass
+// over a finished conversation to catch memory that went stale or never got
+// written. Scope is deliberately NARROW — memory only. It never proposes
+// skills, and it never writes: the caller reviews the candidates and applies
+// the ones it agrees with through memory_append / memory_rewrite.
 export { Config, NS, SECTION_MEMORY, SECTION_NAME, apply, inject, name };
