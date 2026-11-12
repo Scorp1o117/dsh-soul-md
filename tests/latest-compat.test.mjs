@@ -14,6 +14,7 @@ test("manifest records the verified latest and next hosts and keeps alpha unclai
   assert.equal(manifest.dsh.compatibility.dshReleases["0.1.6-alpha.2"], "unknown");
   assert.equal(manifest.dsh.compatibility.dshReleases["0.1.7-alpha.1"], "unknown");
   assert.equal(manifest.dsh.compatibility.dshReleases["0.1.7-alpha.2"], "unknown");
+  assert.equal(manifest.dsh.compatibility.dshReleases["0.2.2-rc.2"], "compatible");
   assert.equal(manifest.dsh.compatibility.node, manifest.engines.node);
   assert.deepEqual(manifest.dsh.compatibility.profiles, ["web", "desktop"]);
 });
@@ -24,7 +25,7 @@ test("next host seams are pinned for repeatable development tests", () => {
     "@deepseek-ai/dsh-settings",
     "@deepseek-ai/dsh-tools",
   ]) {
-    assert.equal(manifest.devDependencies[name], "0.2.2-rc.1");
-    assert.equal(manifest.peerDependencies[name], ">=0.2.0-rc.2 <0.3.0 || 0.2.1-rc.1 || 0.2.1-rc.2 || 0.2.1-rc.3 || 0.2.1-rc.4 || 0.2.1-rc.5 || 0.2.2-rc.1");
+    assert.equal(manifest.devDependencies[name], "0.2.2-rc.2");
+    assert.equal(manifest.peerDependencies[name], ">=0.2.0-rc.2 <0.3.0 || 0.2.1-rc.1 || 0.2.1-rc.2 || 0.2.1-rc.3 || 0.2.1-rc.4 || 0.2.1-rc.5 || 0.2.2-rc.1 || 0.2.2-rc.2");
   }
 });
