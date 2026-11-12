@@ -570,7 +570,7 @@ test("disabled card blocks injection and every memory tool before reading or wri
     assert.equal(host.sections.get("soul:memory").text({ agent: actor }), "");
     assert.equal(await recallText(host, actor), "");
     for (const [name, args] of [
-      ["memory_read", {}], ["memory_search", { query: "Electron" }],
+      ["memory_read", {}], ["memory_search", { query: "Electron" }], ["memory_digest", {}],
       ["memory_append", { section: "test", content: "new" }], ["memory_rewrite", { content: "new" }],
     ]) await assert.rejects(host.tools.get(name).execute(args, { agent: actor }), /Memory is disabled for persona "E"/);
     assert.equal(diskReads, 0, "disabled memory must not inspect the memory directory");
@@ -594,6 +594,42 @@ test("disabled card blocks injection and every memory tool before reading or wri
   config.memory.disabledCards = ["E"];
   config.sessions[actor.session.id] = "none";
   assert.match((await host.tools.get("memory_read").execute({}, { agent: actor })).content, /GLOBAL PRIVATE MARKER/);
+});
+
+test("memory_digest uses the session model and returns candidates without changing memory", async (t) => {
+  const { host, home } = await boot(t, { memory: { layered: true } });
+  const actor = agent();
+  actor.model = { current: () => ({ provider: "stub", model: "current" }) };
+  actor.session.deriveMessages = () => [
+    { role: "system", content: "hidden system prompt" },
+    { role: "user", source: { kind: "plugin" }, content: "hidden context" },
+    { role: "tool", content: "hidden tool output" },
+    humanMessage("1", "The build moved to Electron 40."),
+  ];
+  const get = host.ctx.get;
+  let calls = 0;
+  host.ctx.get = (name) => name === "llm" ? {
+    async *stream(options) {
+      calls++;
+      assert.equal(options.provider, "stub");
+      assert.equal(options.model, "current");
+      assert.deepEqual(options.tools, []);
+      const prompt = options.messages[0].content[0].text;
+      assert.match(prompt, /Electron 40/);
+      assert.match(prompt, /resident memory body/);
+      assert.doesNotMatch(prompt, /hidden/);
+      yield { type: "text-delta", text: '{"candidates":[{"action":"append","topic":"build","content":"Electron 40"}]}' };
+      yield { type: "finish", reason: { kind: "stop" } };
+    },
+  } : get(name);
+  const tool = host.tools.get("memory_digest");
+  const result = await tool.execute({}, { agent: actor });
+  assert.equal(result.candidates[0].content, "Electron 40");
+  assert.equal(await readFile(join(home, "soul-md", "memory", "D.md"), "utf8"), CORE_BODY);
+  assert.equal(existsSync(join(home, "soul-md", "memory", "D")), false);
+  const signal = AbortSignal.abort(new Error("cancelled by caller"));
+  await assert.rejects(tool.execute({}, { agent: actor, signal }), /cancelled by caller/);
+  assert.equal(calls, 1);
 });
 
 test("subagents inherit disabled memory from their live or saved parent without changing persona scope", async (t) => {

@@ -96,9 +96,9 @@ test("parseDigestOutput treats an empty reply as empty, not an error", () => {
   assert.ok(r.note.includes("没有产出"));
 });
 
-test("parseDigestOutput drops unknown actions and defaults topic to core", () => {
+test("parseDigestOutput drops unknown actions and candidates without a target or required content", () => {
   const r = parseDigestOutput(JSON.stringify({
-    candidates: [{ action: "SKILL", topic: "x" }, { action: "delete" }, null, "junk"],
+    candidates: [{ action: "SKILL", topic: "x" }, { action: "delete" }, { action: "rewrite", topic: "old" }, { action: "delete", topic: "core" }, null, "junk"],
   }));
   assert.equal(r.candidates.length, 1);
   assert.equal(r.candidates[0].action, "delete");
