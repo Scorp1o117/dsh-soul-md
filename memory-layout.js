@@ -13,7 +13,6 @@ function topicDescriptor(key, text) {
   let firstTitle;
   let firstBody;
   let latestEntry;
-  let inEntry = false;
   let fence;
   let inComment = false;
 
@@ -35,17 +34,15 @@ function topicDescriptor(key, text) {
     if (heading) {
       const [, marks, title] = heading;
       firstTitle ??= title;
-      if (marks.length <= 2) {
-        // memory_append writes level-two entries. Deeper dated headings can
-        // describe history inside a consolidated topic.
-        inEntry = marks.length === 2 && /^\d{4}-\d{2}-\d{2}(?=$|\s|[—–])/.test(title);
-        if (inEntry) latestEntry = { title, body: undefined };
+      // Only the dated level-two headings written by memory_append delimit entries.
+      if (marks.length === 2 && /^\d{4}-\d{2}-\d{2}(?=$|\s|[—–])/.test(title)) {
+        latestEntry = { title, body: undefined };
       }
       continue;
     }
 
     firstBody ??= value;
-    if (inEntry) latestEntry.body ??= value;
+    if (latestEntry) latestEntry.body ??= value;
   }
 
   const title = (latestEntry?.title ?? firstTitle ?? key).slice(0, 80);

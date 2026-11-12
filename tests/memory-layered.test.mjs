@@ -37,10 +37,16 @@ test("topic metadata uses the last dated entry and keeps its summary within that
     title: "2026-11-07 09:30 — Updated guidance",
     summary: "Default to pwsh 7.6.9.",
   });
-  entries.push("## 2026-11-10 — Heading only", "## History", "### 2026-10-08 — Old", "Old guidance.");
+  entries.push("## 2026-11-10 — Performance", "# Incident", "## Symptoms", "### 2026-10-08 — History", "- Updated guidance.");
   assert.deepEqual(topicDescriptor("powershell", entries.join("\n")), {
     key: "powershell",
-    title: "2026-11-10 — Heading only",
+    title: "2026-11-10 — Performance",
+    summary: "Updated guidance.",
+  });
+  entries.push("## 2026-11-11 — Heading only", "## Notes", "<!-- No body yet -->");
+  assert.deepEqual(topicDescriptor("powershell", entries.join("\n")), {
+    key: "powershell",
+    title: "2026-11-11 — Heading only",
     summary: "（无摘要 / no summary）",
   });
   assert.deepEqual(topicDescriptor("powershell", [
