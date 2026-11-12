@@ -37,6 +37,7 @@ import z from "@deepseek-ai/schemastery";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { createMemoryLayout, normalizeMemoryTopic, retainMemoryEnds } from "./memory-layout.js";
+import { DIGEST, DIGEST_INSTRUCTIONS, parseDigestOutput, renderDigestTranscript } from "./digest.js";
 import { skipsSubagentSections } from "./subagents.js";
 import { boundedInteger, renderRecall, searchTopics } from "./memory-recall.js";
 
@@ -867,6 +868,131 @@ function apply(ctx, config) {
       fileCache.delete(target.file);
       rememberTopic(agentOf(exec), target.scope, target.topic);
       return { bytes, scope: target.scope, topic: target.topic };
+    },
+  }));
+
+  ctx.tools.register(defineTool({
+    name: "memory_digest",
+    description:
+      "Review the recent conversation against the CURRENT memory library and return a CANDIDATE LIST of memory changes (append / rewrite / delete). Uses the current model in a separate request with no tools and makes no memory changes. Show the candidates to the user and apply only the changes they confirm. Use it when requested.",
+    parameters: {
+      focus: { type: "string", description: "Optional: what this review should pay attention to (e.g. a subsystem that changed)." },
+      maxMessages: { type: "integer", description: "How many recent messages to read (default 40, max 200)." },
+      timeoutSec: { type: "integer", description: "Give up after this many seconds (default 180, max 600)." },
+    },
+    output: {
+      schema: {
+        type: "object", additionalProperties: false,
+        properties: {
+          candidates: { type: "array", items: { type: "object", additionalProperties: true } },
+          note: { type: "string" },
+          raw: { type: "string" },
+          ms: { type: "integer" },
+        },
+      },
+      render: (_args, value) => {
+        const ms = value.ms ?? 0;
+        const note = value.note ? `\n${value.note}` : "";
+        const raw = value.raw ? `\n\n原始输出：\n${value.raw}` : "";
+        if (!value.candidates.length) {
+          return [{ type: "text", text: `memory_digest: 没有候选（${ms} ms）。${note}${raw}` }];
+        }
+        const lines = value.candidates.map((c, i) => [
+          `${i + 1}. [${c.action}] ${c.topic}${c.section ? ` / ${c.section}` : ""}`,
+          c.reason ? `   why: ${c.reason}` : "",
+          c.evidence ? `   evidence: ${c.evidence}` : "",
+          c.content ? `   content: ${c.content}` : "",
+        ].filter(Boolean).join("\n"));
+        return [{
+          type: "text",
+          text: `memory_digest: ${value.candidates.length} 条候选（${ms} ms）——尚未写入，确认后用 memory_append / memory_rewrite 落地。${note}\n\n${lines.join("\n\n")}`,
+        }];
+      },
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      const agent = agentOf(exec);
+      requireMemoryEnabled(agent);
+      if (!layeredEnabled()) throw new Error("memory_digest: requires memory.layered to be enabled");
+      const session = agent?.session;
+      const messages = (session?.deriveMessages?.() ?? []).filter((message) =>
+        message.role === "assistant" || (message.role === "user" && message.source?.kind === "user"));
+      if (messages.length === 0) return { candidates: [], note: "当前会话没有可读的消息。", raw: "", ms: 0 };
+
+      const limits = {
+        maxMessages: Math.max(1, boundedInteger(args.maxMessages, DIGEST.maxMessages, 200)),
+        maxCharsPerMessage: DIGEST.maxCharsPerMessage,
+        maxTranscriptChars: DIGEST.maxTranscriptChars,
+      };
+      const transcript = renderDigestTranscript(messages, limits);
+      if (transcript.trim() === "") return { candidates: [], note: "transcript 为空（没有可读的文本消息）。", raw: "", ms: 0 };
+
+      const chain = memoryReadChain(agent);
+      const candidates = searchableTopics(agent);
+      // searchTopics() returns descriptors only; recover each hit's file from the input list.
+      const fileOf = new Map(candidates.map((topic) => [topic.key, topic.file]));
+      const focus = String(args.focus ?? "").trim().slice(0, 1000);
+      const query = [focus, transcript.slice(-(1999 - focus.length))].filter(Boolean).join("\n");
+      const related = searchTopics(candidates, query, readCached, DIGEST.topTopics);
+      const topicBlocks = related.map((hit) => ({
+        key: hit.key,
+        source: hit.source,
+        text: (readCached(fileOf.get(hit.key)) ?? "").slice(0, DIGEST.topicBodyMax),
+      }));
+      const index = chain.index ?? "";
+      const boundedIndex = index.length <= DIGEST.indexMax
+        ? index : index.slice(0, Math.max(0, index.lastIndexOf("\n", DIGEST.indexMax)));
+      const memoryBlock = [
+        `### core.md（${chain.source}）\n${chain.text?.slice(0, DIGEST.coreMax) || "（空）"}`,
+        boundedIndex,
+        topicBlocks.length
+          ? `### 相关主题摘录\n${topicBlocks.map((t) => `#### topic: ${t.key}（${t.source}）\n${t.text}`).join("\n\n---\n\n")}`
+          : "### 相关主题摘录\n（没有命中相关主题）",
+      ].filter(Boolean).join("\n\n");
+
+      const prompt = [
+        focus ? `\n## 本轮焦点\n${focus}` : "",
+        `\n## 现有记忆库\n${memoryBlock}`,
+        `\n## 最近对话 transcript\n${transcript}`,
+      ].filter(Boolean).join("\n");
+
+      const llm = ctx.get("llm");
+      const selection = agent?.model?.current?.() ?? ctx.get("agentDefaultModel")?.currentSelection?.();
+      if (!llm?.stream || !selection?.provider || !selection?.model) {
+        throw new Error("memory_digest: no model route available for this session");
+      }
+      const timeoutSec = Math.max(1, boundedInteger(args.timeoutSec, DIGEST.timeoutSec, 600));
+      const deadline = AbortSignal.timeout(timeoutSec * 1000);
+      const signal = exec?.signal ? AbortSignal.any([exec.signal, deadline]) : deadline;
+      const started = Date.now();
+      let finalText = "";
+      try {
+        signal.throwIfAborted();
+        for await (const chunk of llm.stream({
+          provider: selection.provider,
+          model: selection.model,
+          reasoningEffort: selection.reasoningEffort,
+          system: DIGEST_INSTRUCTIONS,
+          messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
+          tools: [],
+          maxTokens: 4096,
+          signal,
+        })) {
+          if (chunk.type === "text-delta") finalText += chunk.text;
+          if (chunk.type === "finish" && chunk.reason.kind !== "stop") {
+            signal.throwIfAborted();
+            throw new Error(chunk.reason.kind);
+          }
+        }
+        signal.throwIfAborted();
+      } catch (error) {
+        if (exec?.signal?.aborted) exec.signal.throwIfAborted();
+        const note = deadline.aborted ? `复盘超时（${timeoutSec}s）。` : `复盘请求失败：${error.message}`;
+        return { candidates: [], note, raw: "", ms: Date.now() - started };
+      }
+
+      const parsed = parseDigestOutput(finalText);
+      return { candidates: parsed.candidates, note: parsed.note, raw: parsed.raw ?? "", ms: Date.now() - started };
     },
   }));
 

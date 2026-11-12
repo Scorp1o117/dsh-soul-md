@@ -52,7 +52,9 @@ Replace `desktop` with `web` for Web. Restart DSH and open **Plugins → Install
 | `allowTemplates` | `false` | Resolve prompt variables in personas and memories; by default braces are preserved literally |
 | `skipSubagents` | `true` | Skip persona and memory prompt injection for subagents; set to `false` to let them inherit |
 
-Turn off **Memory** beside a persona card to stop memory injection and recall for that card. All four `memory_*` tools reject calls instead of falling back to global memory, including from delegated subagents and team members. `soul_read` and `soul_update` still work. Memory files are kept and become available again when memory is re-enabled. Tool names may still appear in the tool list. Sessions with no persona card continue to use global memory.
+Turn off **Memory** beside a persona card to stop memory injection and recall for that card. All `memory_*` tools reject calls instead of falling back to global memory, including from delegated subagents and team members. `soul_read` and `soul_update` still work. Memory files are kept and become available again when memory is re-enabled. Tool names may still appear in the tool list. Sessions with no persona card continue to use global memory.
+
+With layered memory enabled, ask the agent to review the current conversation with `memory_digest`. It sends recent conversation text and relevant memory excerpts to the current model and returns proposed additions, rewrites, or deletions for your review.
 
 Turning memory off does not remove content already present in the current conversation history, runtime-context snapshots or tool results. Start a new session to isolate those earlier contents.
 
