@@ -44,6 +44,9 @@ Replace `desktop` with `web` for Web. Restart DSH and open **Plugins → Install
 | `memory.inject` | `true` | Inject the memory section into the prompt |
 | `memory.disabledCards` | `[]` | Persona card names with memory disabled; use the switch beside each card in the plugin page |
 | `memory.layered` | `true` | Enable core + topics; turn off for single-file memory |
+| `memory.scope` | `persona` | `persona` uses the active card and can fall back to global memory when reading. `global` uses only shared memory |
+| `memory.coreSeparate` | `false` | Give core.md its own injection budget in layered mode. The topic index and recall share `injectMaxChars` |
+| `memory.coreInjectMaxChars` | `8000` | Character limit for the separate core budget. Truncation retains both ends |
 | `memory.recall` | `keyword` | Suggest related topics starting with the second user message processed during this plugin run; set to `off` to disable |
 | `memory.recallPlacement` | `context` | Put changing recall in runtime context by default; choose `system` for the system prompt |
 | `memory.indexMode` | `all` | With keyword recall enabled, `recall` avoids injecting the full topic index every turn |
@@ -56,7 +59,7 @@ Turn off **Memory** beside a persona card to stop memory injection and recall fo
 
 With layered memory enabled, ask the agent to review the current conversation with `memory_digest`. It sends recent conversation text and relevant memory excerpts to the current model and returns proposed additions, rewrites, or deletions for your review.
 
-Turning memory off does not remove content already present in the current conversation history, runtime-context snapshots or tool results. Start a new session to isolate those earlier contents.
+Switching memory scope changes which files later requests can access. Existing memory files stay in place. Content already in conversation history, runtime-context snapshots, or tool results stays in the session after a scope change or after memory is turned off.
 
 Keyword search is lexical, not semantic vector search. Recall supplies topic keys and summaries only; full text requires a tool read, and the injection budget still applies. With recall enabled and topics present, up to one quarter of the total budget is reserved for dynamic recall, so a long core does not crowd it out and the system prefix remains stable. The full topic index remains enabled by default so the model can discover topics without a lexical match; with many topics, `recall` index mode reduces resident content. Runtime context uses user-message snapshots. If the host disables or does not support runtime context, recall falls back to the system prompt. Older snapshots may remain in conversation history until compaction. `topic: "core"` or `"core.md"` targets resident core; existing `topics/core.md` is not moved automatically. Back it up and inspect it before manually reorganizing.
 

@@ -87,8 +87,13 @@ const Config = z.object({
     inject: z.boolean().default(true),
     /** Persona cards that cannot inject or use long-term memory. */
     disabledCards: z.array(z.string()).default([]),
+    /** Use the active persona's memory, or only the shared global files. */
+    scope: z.union([z.const("persona"), z.const("global")]).default("persona"),
     /** Progressive disclosure: core.md is injected; topics/*.md become an index. */
     layered: z.boolean().default(true),
+    /** Give core.md its own injection budget in layered mode. */
+    coreSeparate: z.boolean().default(false),
+    coreInjectMaxChars: z.number().default(8000),
     /** Cap for the injected memory section (chars, from the file head). */
     injectMaxChars: z.number().default(8000),
     /** Surface relevant topic summaries from the second user message. */
@@ -144,6 +149,7 @@ function apply(ctx, config) {
 
   const cfg = () => (sourceGetter ? sourceGetter() : typeof config.get === "function" ? config.get() : config);
   const layeredEnabled = (c = cfg()) => c.memory?.layered !== false;
+  const separateCore = (c = cfg()) => layeredEnabled(c) && c.memory?.coreSeparate === true;
   const recallMode = (c = cfg()) => c.memory?.recall ?? "keyword";
   const recoveryEnabled = (c = cfg()) => c.memory?.compactionRecall !== false;
 
@@ -247,14 +253,14 @@ function apply(ctx, config) {
   const memoryLayout = createMemoryLayout(memoryDir, readCached);
 
   const memoryScopes = (agent) => {
+    if (cfg().memory?.scope === "global") return ["global"];
     const cardName = cardNameOf(agent);
     return cardName ? [cardName, "global"] : ["global"];
   };
 
-  /** The memory scope ACTIVE for one agent (write target): card memory > global. */
+  /** Writes use only the primary scope. */
   const memoryTarget = (agent, topic = "") => {
-    const cardName = cardNameOf(agent);
-    const scope = cardName ?? "global";
+    const [scope] = memoryScopes(agent);
     return {
       ...memoryLayout.writeTarget(scope, { layered: layeredEnabled(), topic }),
       scope,
@@ -337,28 +343,51 @@ function apply(ctx, config) {
     return resolveCard(assembly?.agent).text ?? "";
   };
 
+  /** Core text and the rendered topic index for one assembly. */
+  const memoryParts = (assembly) => {
+    const c = cfg();
+    const { text, index: fullIndex } = memoryReadChain(assembly?.agent);
+    const index = layeredEnabled(c) && recallMode(c) === "keyword" && c.memory?.indexMode === "recall"
+      ? "Use memory_search(query) to find topic keys and summaries; memory_read(topic) retrieves full text."
+      : fullIndex;
+    return { text, index };
+  };
+
+  /** The shared budget covers index and recall, plus core when it has no separate budget. */
+  const memoryBudget = (agent) => {
+    const c = cfg();
+    const totalCap = boundedInteger(c.memory?.injectMaxChars, 8000, Number.MAX_SAFE_INTEGER);
+    // Keep a stable share of the budget for changing recall when topics exist.
+    // Reserving it even on turns without a match keeps the system prefix fixed.
+    const hasRecall = layeredEnabled(c) && (recallMode(c) === "keyword" || recoveryEnabled(c))
+      && boundedInteger(c.memory?.recallMaxTopics, 5, 20) > 0
+      && searchableTopics(agent).length > 0;
+    const reserved = hasRecall ? Math.min(
+      boundedInteger(c.memory?.recallMaxChars, 1600, 8000), Math.floor(totalCap / 4),
+    ) : 0;
+    return { totalCap, reserved, cap: totalCap - reserved };
+  };
+
   /** Render the memory section for one assembly. */
   const renderMemory = (assembly) => {
     const c = cfg();
     if (!c.memory?.inject) return "";
     if (disabledMemoryCard(assembly?.agent)) return "";
     if (skipsSubagentSections(c, assembly?.agent)) return "";
-    const { text, index: fullIndex } = memoryReadChain(assembly?.agent);
-    const index = layeredEnabled(c) && recallMode(c) === "keyword" && c.memory?.indexMode === "recall"
-      ? "Use memory_search(query) to find topic keys and summaries; memory_read(topic) retrieves full text."
-      : fullIndex;
+    const { text, index } = memoryParts(assembly);
+    if (!text && !index) return "";
+    const { cap } = memoryBudget(assembly?.agent);
+    if (separateCore(c)) {
+      const coreCap = boundedInteger(c.memory?.coreInjectMaxChars, 8000, Number.MAX_SAFE_INTEGER);
+      const core = retainMemoryEnds(text, coreCap);
+      return [
+        core,
+        index.slice(0, cap),
+        text.length > coreCap ? "> core 部分内容未注入，请用 memory_read 读取全文 / part of core omitted; use memory_read for the full text." : "",
+        index.length > cap ? "> 主题索引未完整注入，请用 memory_search 定位主题 / topic index incomplete; use memory_search to find topics." : "",
+      ].filter(Boolean).join("\n\n");
+    }
     const rendered = [text, index].filter(Boolean).join("\n\n");
-    if (!rendered) return "";
-    const totalCap = Math.max(0, Math.floor(c.memory.injectMaxChars ?? 8000));
-    // Keep a stable share of the budget for changing recall when topics exist.
-    // Reserving it even on turns without a match keeps the system prefix fixed.
-    const hasRecall = layeredEnabled(c) && (recallMode(c) === "keyword" || recoveryEnabled(c))
-      && boundedInteger(c.memory?.recallMaxTopics, 5, 20) > 0
-      && searchableTopics(assembly?.agent).length > 0;
-    const reserved = hasRecall ? Math.min(
-      boundedInteger(c.memory?.recallMaxChars, 1600, 8000), Math.floor(totalCap / 4),
-    ) : 0;
-    const cap = totalCap - reserved;
     if (rendered.length <= cap) return rendered;
     if (!index) {
       return retainMemoryEnds(rendered, cap) + "\n\n> 部分记忆未注入（已保留首尾），请用 memory_read 读取全文 / part of memory omitted (beginning and end retained); use memory_read for the full text.";
@@ -389,8 +418,9 @@ function apply(ctx, config) {
     const recoveredKeys = new Set(recovered.map((topic) => topic.key));
     const recalled = recallMode(c) === "keyword" && state.count >= 2
       ? searchTopics(topics, state.query, readCached, limit).filter((topic) => !recoveredKeys.has(topic.key)) : [];
-    const remaining = Math.max(0, boundedInteger(c.memory.injectMaxChars, 8000, Number.MAX_SAFE_INTEGER)
-      - renderMemory(assembly).length - 2);
+    const { totalCap, cap } = memoryBudget(assembly?.agent);
+    const billed = separateCore(c) ? Math.min(memoryParts(assembly).index.length, cap) : renderMemory(assembly).length;
+    const remaining = Math.max(0, totalCap - billed - 2);
     return renderRecall([
       { heading: "压缩后曾查阅的主题 / Topics consulted before compaction (use memory_read):", topics: recovered },
       { heading: "可能相关的记忆，仅供参考 / Possibly relevant memory; verify with memory_read:", topics: recalled },
@@ -681,7 +711,7 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "memory_append",
     description:
-      "Append a dated Markdown block to long-term memory when memory is enabled for the current persona; disabled personas reject the call. The target follows your CURRENT scope: the active persona card's memory, else global memory. In layered mode, omit topic for always-visible core or pass a stable topic key for an on-demand topic file. Prefer small, self-contained entries. When a topic grows large or entries contradict each other, read it and use memory_rewrite to consolidate, putting the current summary first.",
+      "Append a dated Markdown block to long-term memory when memory is enabled for the current persona; disabled personas reject the call. Writes use the current persona in persona mode when one is selected, or global memory otherwise. In layered mode, omit topic for always-visible core or pass a stable topic key for an on-demand topic file. Prefer small, self-contained entries. When a topic grows large or entries contradict each other, read it and use memory_rewrite to consolidate, putting the current summary first.",
     parameters: {
       section: { type: "string", required: true, description: "Short heading for the entry, e.g. 用户偏好 / project decision. Use a stable name so related entries group together." },
       content: { type: "string", required: true, description: "The markdown text to remember. Keep it concise and self-contained." },
@@ -745,7 +775,7 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "memory_read",
     description:
-      "Read your long-term memory back. The reader walks your CURRENT scope chain: the active persona card's memory, else global memory. In layered mode, omit topic to read core memory plus the topic index, then pass a topic key to retrieve that topic's full text on demand.",
+      "Read your long-term memory back. Global mode reads only global memory; persona mode looks at the current card first and falls back to global memory. In layered mode, omit topic to read core memory plus the topic index, then pass a topic key to retrieve that topic's full text on demand.",
     parameters: {
       topic: { type: "string", description: "Optional topic key to read in layered mode. Omit or pass core/core.md to read core memory plus the topic index." },
     },

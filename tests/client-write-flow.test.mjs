@@ -172,6 +172,9 @@ test("settings show the new defaults without rewriting an untouched configuratio
   const field = (key) => allNodes(render()).find((node) => node.props?.key === key);
   const control = (key) => allNodes(field(key)).find((node) => node.type === "select" || node.type === "input");
   assert.equal(control("layered").props.checked, true);
+  assert.equal(control("scope").props.value, "persona");
+  assert.equal(control("coreSeparate").props.checked, false);
+  assert.equal(control("coreInjectMaxChars").props.value, "8000");
   assert.equal(control("recall").props.value, "keyword");
   assert.equal(control("recallPlacement").props.value, "context");
   assert.equal(control("indexMode").props.value, "all");
@@ -184,7 +187,7 @@ test("settings show the new defaults without rewriting an untouched configuratio
   assert.equal(calls, 0);
 });
 
-test("recall selectors and recovery toggle save through one revision fence and survive remount", async () => {
+test("memory scope, core budget and recall settings save through one revision fence and survive remount", async () => {
   const snapshot = { status: "ready", writable: true, revision: 1, value: {
     cards: {}, memory: { inject: true, layered: true, recall: "off", indexMode: "all", compactionRecall: false, hiddenSetting: "preserve" },
   } };
@@ -202,6 +205,9 @@ test("recall selectors and recovery toggle save through one revision fence and s
   const render = mountSwitcher(scope, "plugins.bundle.config");
   const field = (key) => allNodes(render()).find((node) => node.props?.key === key);
   const control = (key) => allNodes(field(key)).find((node) => node.type === "select" || node.type === "input");
+  control("scope").props.onChange({ target: { value: "global" } });
+  control("coreSeparate").props.onChange({ target: { checked: true } });
+  control("coreInjectMaxChars").props.onChange({ target: { value: "1200" } });
   control("recall").props.onChange({ target: { value: "keyword" } });
   control("recallPlacement").props.onChange({ target: { value: "system" } });
   control("indexMode").props.onChange({ target: { value: "recall" } });
@@ -211,6 +217,9 @@ test("recall selectors and recovery toggle save through one revision fence and s
   save().props.onClick();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls, 1);
+  assert.equal(snapshot.value.memory.scope, "global");
+  assert.equal(snapshot.value.memory.coreSeparate, true);
+  assert.equal(snapshot.value.memory.coreInjectMaxChars, 1200);
   assert.equal(snapshot.value.memory.recall, "keyword");
   assert.equal(snapshot.value.memory.recallPlacement, "system");
   assert.equal(snapshot.value.memory.indexMode, "recall");
@@ -219,6 +228,8 @@ test("recall selectors and recovery toggle save through one revision fence and s
   assert.equal(snapshot.value.memory.hiddenSetting, "preserve");
   const remounted = mountSwitcher(scope, "plugins.bundle.config");
   const nodes = allNodes(remounted());
+  assert.ok(nodes.some((node) => node.type === "select" && node.props.value === "global"));
+  assert.ok(nodes.some((node) => node.type === "input" && node.props.value === "1200"));
   assert.ok(nodes.some((node) => node.type === "select" && node.props.value === "keyword"));
   assert.ok(nodes.some((node) => node.type === "select" && node.props.value === "recall"));
   control("compactionRecall").props.onChange({ target: { checked: false } });
