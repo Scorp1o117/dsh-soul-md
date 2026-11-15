@@ -332,9 +332,9 @@ test("layered memory_read keeps a long core's recent tail before the topic index
   assert.match(read.content, /`project` — Project/);
 });
 
-test("coreUncapped injects the whole core ahead of a still-capped topic index", async (t) => {
+test("coreSeparate injects the whole core ahead of a still-capped topic index", async (t) => {
   const { host, home } = await boot(t, {
-    memory: { inject: true, layered: true, coreUncapped: true, injectMaxChars: 350, maxBytes: 1048576, order: 0.5 },
+    memory: { inject: true, layered: true, coreSeparate: true, injectMaxChars: 350, maxBytes: 1048576, order: 0.5 },
   });
   const root = join(home, "soul-md", "memory", "D");
   await mkdir(join(root, "topics"), { recursive: true });
@@ -349,9 +349,9 @@ test("coreUncapped injects the whole core ahead of a still-capped topic index", 
   assert.doesNotMatch(injected, /core 部分内容未注入|core 未注入|部分记忆未注入/);
 });
 
-test("coreUncapped truncates only a topic index that exceeds the cap", async (t) => {
+test("coreSeparate truncates only a topic index that exceeds the cap", async (t) => {
   const { host, home } = await boot(t, {
-    memory: { inject: true, layered: true, coreUncapped: true, injectMaxChars: 60, maxBytes: 1048576, order: 0.5 },
+    memory: { inject: true, layered: true, coreSeparate: true, injectMaxChars: 60, maxBytes: 1048576, order: 0.5 },
   });
   const root = join(home, "soul-md", "memory", "D");
   await mkdir(join(root, "topics"), { recursive: true });
@@ -360,12 +360,12 @@ test("coreUncapped truncates only a topic index that exceeds the cap", async (t)
 
   const injected = host.sections.get("soul:memory").text(parentAssembly());
   assert.match(injected, /^Core text/);
-  assert.match(injected, /主题索引未完整注入，core 已完整注入/);
+  assert.match(injected, /主题索引未完整注入/);
 });
 
-test("coreUncapped is ignored outside layered memory", async (t) => {
+test("coreSeparate is ignored outside layered memory", async (t) => {
   const { host, home } = await boot(t, {
-    memory: { inject: true, layered: false, coreUncapped: true, injectMaxChars: 120, maxBytes: 1048576, order: 0.5 },
+    memory: { inject: true, layered: false, coreSeparate: true, injectMaxChars: 120, maxBytes: 1048576, order: 0.5 },
   });
   await writeFile(join(home, "soul-md", "memory", "D.md"),
     "EARLY " + "x".repeat(21000) + " RECENT APPEND", "utf8");
@@ -374,21 +374,28 @@ test("coreUncapped is ignored outside layered memory", async (t) => {
   assert.match(injected, /已保留首尾/);
 });
 
-test("coreUncapped leaves the recall budget available after a long core", async (t) => {
+test("a separate core budget keeps both ends and leaves the index and recall budgets available", async (t) => {
   const { host, home } = await boot(t, { memory: {
-    layered: true, inject: true, coreUncapped: true, recall: "keyword", indexMode: "all",
-    recallMaxChars: 1600, compactionRecall: false, injectMaxChars: 400, order: 0.5,
+    layered: true, inject: true, coreSeparate: true, recall: "keyword", indexMode: "all",
+    recallMaxChars: 1600, compactionRecall: false, injectMaxChars: 400, coreInjectMaxChars: 600, order: 0.5,
   } });
   const root = join(home, "soul-md", "memory", "D");
   await mkdir(root, { recursive: true });
-  await writeFile(join(root, "core.md"), "CORE " + "y".repeat(2000), "utf8");
+  const core = "CORE " + "y".repeat(2000) + " RECENT";
+  await writeFile(join(root, "core.md"), core, "utf8");
   await topicFixture(home, "D", "build", "# Build\n\nBrief.\n\nElectron");
 
   const actor = agent();
   await admit(host, actor, [humanMessage("1", "Electron"), humanMessage("2", "Electron")]);
   const recall = await recallText(host, actor);
   assert.match(recall, /"build"/);
-  assert.ok(host.sections.get("soul:memory").text({ agent: actor }).startsWith("CORE "));
+  const injected = host.sections.get("soul:memory").text({ agent: actor });
+  const [coreExcerpt] = injected.split("\n\n");
+  assert.equal(coreExcerpt.length, 600);
+  assert.match(coreExcerpt, /^CORE .*\n…\n.* RECENT$/);
+  assert.match(injected, /`build` — Build/);
+  assert.match(injected, /core 部分内容未注入/);
+  assert.equal((await host.tools.get("memory_read").execute({}, { agent: actor })).content.startsWith(core), true);
 });
 
 async function topicFixture(home, scope, key, content) {
@@ -581,7 +588,9 @@ test("new defaults enable useful memory features and retain explicit old choices
   const { Config } = await import("../index.js");
   const defaults = Config({}).get();
   assert.equal(defaults.memory.layered, true);
-  assert.equal(defaults.memory.coreUncapped, false);
+  assert.equal(defaults.memory.scope, "persona");
+  assert.equal(defaults.memory.coreSeparate, false);
+  assert.equal(defaults.memory.coreInjectMaxChars, 8000);
   assert.equal(defaults.memory.recall, "keyword");
   assert.equal(defaults.memory.recallPlacement, "context");
   assert.equal(defaults.memory.compactionRecall, true);
@@ -654,6 +663,64 @@ test("disabled card blocks injection and every memory tool before reading or wri
   config.memory.disabledCards = ["E"];
   config.sessions[actor.session.id] = "none";
   assert.match((await host.tools.get("memory_read").execute({}, { agent: actor })).content, /GLOBAL PRIVATE MARKER/);
+});
+
+test("switching memory scope selects global files for injection, search, recall, digest and writes", async (t) => {
+  const { host, home } = await boot(t, { memory: { inject: true, layered: true } });
+  const actor = agent();
+  const exec = { agent: actor };
+  const config = host.ctx.get("settings").register().get();
+  await topicFixture(home, "D", "personal-build", "# Personal Build\n\nPrivate memory.\n\nElectron");
+  await topicFixture(home, "global", "shared-build", "# Shared Build\n\nShared memory.\n\nElectron");
+  const globalRoot = join(home, "soul-md", "memory", "global");
+  await writeFile(join(globalRoot, "core.md"), "Shared resident core.", "utf8");
+  const memoryText = () => host.sections.get("soul:memory").text({ agent: actor });
+  const read = (topic) => host.tools.get("memory_read").execute({ topic }, exec);
+  const search = () => host.tools.get("memory_search").execute({ query: "Electron" }, exec);
+  assert.match(memoryText(), /personal-build/);
+  assert.deepEqual((await search()).matches.map(({ key }) => key).sort(), ["personal-build", "shared-build"]);
+  assert.equal((await read("shared-build")).source, "global", "persona mode retains read fallback");
+
+  config.memory.scope = "global";
+  assert.match(memoryText(), /Shared resident core/);
+  assert.match(memoryText(), /shared-build/);
+  assert.doesNotMatch(memoryText(), /personal-build/);
+  assert.equal((await read("personal-build")).exists, false);
+  assert.deepEqual((await search()).matches.map(({ key }) => key), ["shared-build"]);
+  await admit(host, actor, [humanMessage("1", "Electron"), humanMessage("2", "Electron")]);
+  assert.match(await recallText(host, actor), /shared-build/);
+  assert.doesNotMatch(await recallText(host, actor), /personal-build/);
+
+  const rewrite = await host.tools.get("memory_rewrite").execute({ content: "New shared core." }, exec);
+  assert.equal(rewrite.scope, "global");
+  const append = await host.tools.get("memory_append").execute({ section: "Shared", content: "Shared addition." }, exec);
+  assert.equal(append.scope, "global");
+  assert.match(await readFile(join(globalRoot, "core.md"), "utf8"), /Shared addition\./);
+  assert.equal((await host.tools.get("soul_read").execute({}, exec)).persona, "D");
+
+  actor.model = { current: () => ({ provider: "stub", model: "current" }) };
+  actor.session.deriveMessages = () => [humanMessage("3", "Electron")];
+  const get = host.ctx.get;
+  host.ctx.get = (name) => name === "llm" ? {
+    async *stream(options) {
+      const prompt = options.messages[0].content[0].text;
+      assert.match(prompt, /Shared addition/);
+      assert.match(prompt, /shared-build/);
+      assert.doesNotMatch(prompt, /personal-build|Private memory/);
+      yield { type: "text-delta", text: '{"candidates":[]}' };
+      yield { type: "finish", reason: { kind: "stop" } };
+    },
+  } : get(name);
+  const digest = await host.tools.get("memory_digest").execute({}, exec);
+  assert.equal(digest.note, "");
+
+  config.memory.disabledCards = ["D"];
+  assert.equal(memoryText(), "");
+  await assert.rejects(read("shared-build"), /Memory is disabled/);
+  config.memory.disabledCards = [];
+  config.memory.scope = "persona";
+  assert.match(memoryText(), /personal-build/);
+  assert.doesNotMatch(memoryText(), /Shared addition/);
 });
 
 test("memory_digest uses the session model and returns candidates without changing memory", async (t) => {
