@@ -332,6 +332,65 @@ test("layered memory_read keeps a long core's recent tail before the topic index
   assert.match(read.content, /`project` — Project/);
 });
 
+test("coreUncapped injects the whole core ahead of a still-capped topic index", async (t) => {
+  const { host, home } = await boot(t, {
+    memory: { inject: true, layered: true, coreUncapped: true, injectMaxChars: 350, maxBytes: 1048576, order: 0.5 },
+  });
+  const root = join(home, "soul-md", "memory", "D");
+  await mkdir(join(root, "topics"), { recursive: true });
+  const core = "START " + "x".repeat(500) + " RECENT";
+  await writeFile(join(root, "core.md"), core, "utf8");
+  await writeFile(join(root, "topics", "project.md"), "# Project\n\nA useful summary.", "utf8");
+
+  const injected = host.sections.get("soul:memory").text(parentAssembly());
+  assert.ok(injected.startsWith(core), "the whole core comes first");
+  assert.match(injected, / RECENT\n\n## 主题记忆索引/);
+  assert.match(injected, /`project` — Project：A useful summary\./);
+  assert.doesNotMatch(injected, /core 部分内容未注入|core 未注入|部分记忆未注入/);
+});
+
+test("coreUncapped truncates only a topic index that exceeds the cap", async (t) => {
+  const { host, home } = await boot(t, {
+    memory: { inject: true, layered: true, coreUncapped: true, injectMaxChars: 60, maxBytes: 1048576, order: 0.5 },
+  });
+  const root = join(home, "soul-md", "memory", "D");
+  await mkdir(join(root, "topics"), { recursive: true });
+  await writeFile(join(root, "core.md"), "Core text", "utf8");
+  await writeFile(join(root, "topics", "project.md"), "# Project\n\nA useful summary.", "utf8");
+
+  const injected = host.sections.get("soul:memory").text(parentAssembly());
+  assert.match(injected, /^Core text/);
+  assert.match(injected, /主题索引未完整注入，core 已完整注入/);
+});
+
+test("coreUncapped is ignored outside layered memory", async (t) => {
+  const { host, home } = await boot(t, {
+    memory: { inject: true, layered: false, coreUncapped: true, injectMaxChars: 120, maxBytes: 1048576, order: 0.5 },
+  });
+  await writeFile(join(home, "soul-md", "memory", "D.md"),
+    "EARLY " + "x".repeat(21000) + " RECENT APPEND", "utf8");
+
+  const injected = host.sections.get("soul:memory").text(parentAssembly());
+  assert.match(injected, /已保留首尾/);
+});
+
+test("coreUncapped leaves the recall budget available after a long core", async (t) => {
+  const { host, home } = await boot(t, { memory: {
+    layered: true, inject: true, coreUncapped: true, recall: "keyword", indexMode: "all",
+    recallMaxChars: 1600, compactionRecall: false, injectMaxChars: 400, order: 0.5,
+  } });
+  const root = join(home, "soul-md", "memory", "D");
+  await mkdir(root, { recursive: true });
+  await writeFile(join(root, "core.md"), "CORE " + "y".repeat(2000), "utf8");
+  await topicFixture(home, "D", "build", "# Build\n\nBrief.\n\nElectron");
+
+  const actor = agent();
+  await admit(host, actor, [humanMessage("1", "Electron"), humanMessage("2", "Electron")]);
+  const recall = await recallText(host, actor);
+  assert.match(recall, /"build"/);
+  assert.ok(host.sections.get("soul:memory").text({ agent: actor }).startsWith("CORE "));
+});
+
 async function topicFixture(home, scope, key, content) {
   const dir = join(home, "soul-md", "memory", scope, "topics");
   await mkdir(dir, { recursive: true });
@@ -522,6 +581,7 @@ test("new defaults enable useful memory features and retain explicit old choices
   const { Config } = await import("../index.js");
   const defaults = Config({}).get();
   assert.equal(defaults.memory.layered, true);
+  assert.equal(defaults.memory.coreUncapped, false);
   assert.equal(defaults.memory.recall, "keyword");
   assert.equal(defaults.memory.recallPlacement, "context");
   assert.equal(defaults.memory.compactionRecall, true);

@@ -89,6 +89,8 @@ const Config = z.object({
     disabledCards: z.array(z.string()).default([]),
     /** Progressive disclosure: core.md is injected; topics/*.md become an index. */
     layered: z.boolean().default(true),
+    /** Inject core.md in full outside injectMaxChars; the cap then bounds the topic index only. */
+    coreUncapped: z.boolean().default(false),
     /** Cap for the injected memory section (chars, from the file head). */
     injectMaxChars: z.number().default(8000),
     /** Surface relevant topic summaries from the second user message. */
@@ -144,6 +146,8 @@ function apply(ctx, config) {
 
   const cfg = () => (sourceGetter ? sourceGetter() : typeof config.get === "function" ? config.get() : config);
   const layeredEnabled = (c = cfg()) => c.memory?.layered !== false;
+  /** Layered memory whose core.md stays entirely outside the injectMaxChars budget. */
+  const coreUncapped = (c = cfg()) => layeredEnabled(c) && c.memory?.coreUncapped === true;
   const recallMode = (c = cfg()) => c.memory?.recall ?? "keyword";
   const recoveryEnabled = (c = cfg()) => c.memory?.compactionRecall !== false;
 
@@ -337,28 +341,48 @@ function apply(ctx, config) {
     return resolveCard(assembly?.agent).text ?? "";
   };
 
+  /** Core text and the rendered topic index for one assembly. */
+  const memoryParts = (assembly) => {
+    const c = cfg();
+    const { text, index: fullIndex } = memoryReadChain(assembly?.agent);
+    const index = layeredEnabled(c) && recallMode(c) === "keyword" && c.memory?.indexMode === "recall"
+      ? "Use memory_search(query) to find topic keys and summaries; memory_read(topic) retrieves full text."
+      : fullIndex;
+    return { text, index };
+  };
+
+  /** Shared character budgets: `cap` bounds the memory section, `totalCap` the whole injection. */
+  const memoryBudget = (agent) => {
+    const c = cfg();
+    const totalCap = Math.max(0, Math.floor(c.memory.injectMaxChars ?? 8000));
+    // Keep a stable share of the budget for changing recall when topics exist.
+    // Reserving it even on turns without a match keeps the system prefix fixed.
+    const hasRecall = layeredEnabled(c) && (recallMode(c) === "keyword" || recoveryEnabled(c))
+      && boundedInteger(c.memory?.recallMaxTopics, 5, 20) > 0
+      && searchableTopics(agent).length > 0;
+    const reserved = hasRecall ? Math.min(
+      boundedInteger(c.memory?.recallMaxChars, 1600, 8000), Math.floor(totalCap / 4),
+    ) : 0;
+    return { totalCap, reserved, cap: totalCap - reserved };
+  };
+
   /** Render the memory section for one assembly. */
   const renderMemory = (assembly) => {
     const c = cfg();
     if (!c.memory?.inject) return "";
     if (disabledMemoryCard(assembly?.agent)) return "";
     if (skipsSubagentSections(c, assembly?.agent)) return "";
-    const { text, index: fullIndex } = memoryReadChain(assembly?.agent);
-    const index = layeredEnabled(c) && recallMode(c) === "keyword" && c.memory?.indexMode === "recall"
-      ? "Use memory_search(query) to find topic keys and summaries; memory_read(topic) retrieves full text."
-      : fullIndex;
+    const { text, index } = memoryParts(assembly);
     const rendered = [text, index].filter(Boolean).join("\n\n");
     if (!rendered) return "";
-    const totalCap = Math.max(0, Math.floor(c.memory.injectMaxChars ?? 8000));
-    // Keep a stable share of the budget for changing recall when topics exist.
-    // Reserving it even on turns without a match keeps the system prefix fixed.
-    const hasRecall = layeredEnabled(c) && (recallMode(c) === "keyword" || recoveryEnabled(c))
-      && boundedInteger(c.memory?.recallMaxTopics, 5, 20) > 0
-      && searchableTopics(assembly?.agent).length > 0;
-    const reserved = hasRecall ? Math.min(
-      boundedInteger(c.memory?.recallMaxChars, 1600, 8000), Math.floor(totalCap / 4),
-    ) : 0;
-    const cap = totalCap - reserved;
+    const { cap } = memoryBudget(assembly?.agent);
+    if (coreUncapped(c)) {
+      // core.md rides outside injectMaxChars, so the cap bounds the topic index alone.
+      if (!index) return text;
+      if (index.length <= cap) return rendered;
+      return [text, index.slice(0, cap)].filter(Boolean).join("\n\n")
+        + "\n\n> 主题索引未完整注入，core 已完整注入；请用 memory_search 定位主题后 memory_read 读取全文 / topic index incomplete; core injected in full; use memory_search and memory_read.";
+    }
     if (rendered.length <= cap) return rendered;
     if (!index) {
       return retainMemoryEnds(rendered, cap) + "\n\n> 部分记忆未注入（已保留首尾），请用 memory_read 读取全文 / part of memory omitted (beginning and end retained); use memory_read for the full text.";
@@ -389,8 +413,10 @@ function apply(ctx, config) {
     const recoveredKeys = new Set(recovered.map((topic) => topic.key));
     const recalled = recallMode(c) === "keyword" && state.count >= 2
       ? searchTopics(topics, state.query, readCached, limit).filter((topic) => !recoveredKeys.has(topic.key)) : [];
-    const remaining = Math.max(0, boundedInteger(c.memory.injectMaxChars, 8000, Number.MAX_SAFE_INTEGER)
-      - renderMemory(assembly).length - 2);
+    const { totalCap, cap } = memoryBudget(assembly?.agent);
+    // An uncapped core leaves the whole budget to the topic index and recall.
+    const billed = coreUncapped(c) ? Math.min(memoryParts(assembly).index.length, cap) : renderMemory(assembly).length;
+    const remaining = Math.max(0, totalCap - billed - 2);
     return renderRecall([
       { heading: "压缩后曾查阅的主题 / Topics consulted before compaction (use memory_read):", topics: recovered },
       { heading: "可能相关的记忆，仅供参考 / Possibly relevant memory; verify with memory_read:", topics: recalled },

@@ -44,6 +44,7 @@ Replace `desktop` with `web` for Web. Restart DSH and open **Plugins → Install
 | `memory.inject` | `true` | Inject the memory section into the prompt |
 | `memory.disabledCards` | `[]` | Persona card names with memory disabled; use the switch beside each card in the plugin page |
 | `memory.layered` | `true` | Enable core + topics; turn off for single-file memory |
+| `memory.coreUncapped` | `false` | Inject all of core.md first and outside the character budget; the cap then bounds the topic index |
 | `memory.recall` | `keyword` | Suggest related topics starting with the second user message processed during this plugin run; set to `off` to disable |
 | `memory.recallPlacement` | `context` | Put changing recall in runtime context by default; choose `system` for the system prompt |
 | `memory.indexMode` | `all` | With keyword recall enabled, `recall` avoids injecting the full topic index every turn |

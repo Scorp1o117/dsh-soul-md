@@ -44,6 +44,7 @@ Web 将 `desktop` 改为 `web`。安装后重启 DSH，打开 **插件 → 已�
 | `memory.inject` | `true` | 将记忆段落注入提示词 |
 | `memory.disabledCards` | `[]` | 关闭记忆的人设卡名称列表；可通过插件页卡片旁的开关修改 |
 | `memory.layered` | `true` | 启用 core + topics 分层，可关闭切回单文件模式 |
+| `memory.coreUncapped` | `false` | 开启后 core.md 全文先注入且不计入字符预算，预算只约束主题索引 |
 | `memory.recall` | `keyword` | 从插件运行期间的第二条用户消息起提示相关主题，可设为 `off` 关闭 |
 | `memory.recallPlacement` | `context` | 动态召回默认放入运行时上下文；可设为 `system` 使用系统提示词 |
 | `memory.indexMode` | `all` | 在关键词召回开启时可设为 `recall`，避免每轮注入完整主题索引 |

@@ -243,6 +243,8 @@ window.__ModuleLoader__.load({
       wsName: "工作区",
       fieldMemoryInject: "注入为 soul:memory 提示词段落",
       fieldMemoryLayered: "启用分层记忆（core + topics 索引）",
+      fieldMemoryCoreUncapped: "启用分层记忆时单独注入core.md",
+      memoryCoreUncappedHint: "默认关闭。开启后优先注入core.md且不计入注入字符上限",
       fieldSkipSubagents: "子代理会话跳过人设与记忆注入",
       fieldAllowTemplates: "允许人设与记忆使用提示词变量",
       fieldMemoryInjectMaxChars: "注入字符上限",
@@ -315,6 +317,8 @@ window.__ModuleLoader__.load({
       wsName: "Workspace",
       fieldMemoryInject: "Inject as soul:memory prompt section",
       fieldMemoryLayered: "Enable layered memory (core + topic index)",
+      fieldMemoryCoreUncapped: "Inject core.md separately when layered memory is on",
+      memoryCoreUncappedHint: "Off by default. When on, core.md is injected first and no longer counts toward the inject char cap.",
       fieldSkipSubagents: "Skip persona + memory in subagent sessions",
       fieldAllowTemplates: "Allow prompt variables in persona and memory",
       fieldMemoryInjectMaxChars: "Inject char cap",
@@ -325,6 +329,7 @@ window.__ModuleLoader__.load({
     var MEMORY_FIELDS = [
       { key: "inject", label: "fieldMemoryInject", type: "checkbox", hint: "memoryInjectHint" },
       { key: "layered", label: "fieldMemoryLayered", type: "checkbox", hint: "memoryLayeredHint" },
+      { key: "coreUncapped", label: "fieldMemoryCoreUncapped", type: "checkbox", hint: "memoryCoreUncappedHint" },
       { key: "recall", label: "fieldMemoryRecall", type: "select", options: [["off", "recallOff"], ["keyword", "recallKeyword"]], hint: "memoryRecallHint" },
       { key: "recallPlacement", label: "fieldMemoryRecallPlacement", type: "select", options: [["context", "recallPlacementContext"], ["system", "recallPlacementSystem"]], hint: "memoryRecallPlacementHint" },
       { key: "indexMode", label: "fieldMemoryIndexMode", type: "select", options: [["all", "indexAll"], ["recall", "indexRecall"]], hint: "memoryIndexModeHint" },
@@ -334,7 +339,7 @@ window.__ModuleLoader__.load({
       { key: "injectMaxChars", label: "fieldMemoryInjectMaxChars", type: "number", hint: "memoryMaxCharsHint" },
       { key: "maxBytes", label: "fieldMemoryMaxBytes", type: "number", hint: "memoryMaxBytesHint" }
     ];
-    var MEMORY_DEFAULTS = { inject: true, layered: true, recall: "keyword", recallPlacement: "context", indexMode: "all", compactionRecall: true, recallMaxTopics: 5, recallMaxChars: 1600, injectMaxChars: 8000, maxBytes: 1048576 };
+    var MEMORY_DEFAULTS = { inject: true, layered: true, coreUncapped: false, recall: "keyword", recallPlacement: "context", indexMode: "all", compactionRecall: true, recallMaxTopics: 5, recallMaxChars: 1600, injectMaxChars: 8000, maxBytes: 1048576 };
 
     function SoulSection(props) {
       useLocale(props.locale);
