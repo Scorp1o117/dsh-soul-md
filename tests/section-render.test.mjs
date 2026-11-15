@@ -632,6 +632,40 @@ test("memory_digest uses the session model and returns candidates without changi
   assert.equal(calls, 1);
 });
 
+test("memory_digest handles complete and incomplete JSON at the output token limit", async (t) => {
+  const { host } = await boot(t, { memory: { layered: true } });
+  const actor = agent();
+  actor.model = { current: () => ({ provider: "stub", model: "current" }) };
+  actor.session.deriveMessages = () => [humanMessage("1", "The build moved to Electron 40.")];
+  const get = host.ctx.get;
+  let output = '{"candidates":[{"action":"append","topic":"build","content":"Electron 40"}]}';
+  let reason = "max-tokens";
+  host.ctx.get = (name) => name === "llm" ? {
+    async *stream() {
+      yield { type: "text-delta", text: output };
+      yield { type: "finish", reason: { kind: reason } };
+    },
+  } : get(name);
+
+  const tool = host.tools.get("memory_digest");
+  const recovered = await tool.execute({}, { agent: actor });
+  assert.equal(recovered.candidates[0].content, "Electron 40");
+  assert.match(recovered.note, /max-tokens/);
+
+  output = output.slice(0, -2);
+  const truncated = await tool.execute({}, { agent: actor });
+  assert.deepEqual(truncated.candidates, []);
+  assert.match(truncated.note, /max-tokens/);
+  assert.equal(truncated.raw, output);
+  assert.match(tool.output.render({}, truncated)[0].text, /原始输出/);
+
+  reason = "error";
+  const failed = await tool.execute({}, { agent: actor });
+  assert.deepEqual(failed.candidates, []);
+  assert.equal(failed.raw, "");
+  assert.match(failed.note, /复盘请求失败/);
+});
+
 test("subagents inherit disabled memory from their live or saved parent without changing persona scope", async (t) => {
   const { host } = await boot(t, { cards: { D: "default", E: "private" }, active: "D", skipSubagents: false,
     sessions: { parent: "E" }, memory: { inject: true, layered: true, disabledCards: ["E"] } });

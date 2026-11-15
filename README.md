@@ -17,7 +17,7 @@ Soul 的记忆以文件和人设为中心；需要对话捕获、模型提取和
 
 ## 兼容性与安装
 
-支持 DSH Web / Desktop；仓库声明兼容 `0.2.0-rc.2`、`0.2.1-rc.1` / `rc.2` / `rc.3` / `rc.4` / `rc.5` 和符合 `>=0.2.0-rc.2 <0.3.0` 的版本，预发布版本范围见 [package.json](package.json)。要求 Node.js `>=20.18`。
+支持 DSH Web / Desktop。DSH 启动时允许 `0.2.0-rc.2` 起的所有宿主版本（含后续预发布版）。兼容声明见 [package.json](package.json)。要求 Node.js `>=20.18`。
 
 DSH `0.2.0-rc.2` 没有新会话页的扩展位，可继续使用会话标题栏选择人设。
 

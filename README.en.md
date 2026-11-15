@@ -17,7 +17,7 @@ Soul centers memory on files and personas. For conversation capture, model-based
 
 ## Compatibility and installation
 
-Supports DSH Web / Desktop. The repository declares compatibility with `0.2.0-rc.2`, `0.2.1-rc.1` / `rc.2` / `rc.3` / `rc.4` / `rc.5` and versions matching `>=0.2.0-rc.2 <0.3.0`; see [package.json](package.json) for the complete prerelease range. Node.js `>=20.18` is required.
+DSH Web / Desktop accepts host versions from `0.2.0-rc.2` onward at startup, including future prereleases. See [package.json](package.json) for the compatibility declaration. Node.js `>=20.18` is required.
 
 DSH `0.2.0-rc.2` does not have the new-session extension slot; use the conversation header selector there.
 

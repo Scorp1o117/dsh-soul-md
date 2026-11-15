@@ -966,6 +966,7 @@ function apply(ctx, config) {
       const signal = exec?.signal ? AbortSignal.any([exec.signal, deadline]) : deadline;
       const started = Date.now();
       let finalText = "";
+      let truncated = false;
       try {
         signal.throwIfAborted();
         for await (const chunk of llm.stream({
@@ -979,10 +980,10 @@ function apply(ctx, config) {
           signal,
         })) {
           if (chunk.type === "text-delta") finalText += chunk.text;
-          if (chunk.type === "finish" && chunk.reason.kind !== "stop") {
-            signal.throwIfAborted();
-            throw new Error(chunk.reason.kind);
-          }
+          if (chunk.type !== "finish" || chunk.reason.kind === "stop") continue;
+          signal.throwIfAborted();
+          if (chunk.reason.kind !== "max-tokens") throw new Error(chunk.reason.kind);
+          truncated = true;
         }
         signal.throwIfAborted();
       } catch (error) {
@@ -992,7 +993,10 @@ function apply(ctx, config) {
       }
 
       const parsed = parseDigestOutput(finalText);
-      return { candidates: parsed.candidates, note: parsed.note, raw: parsed.raw ?? "", ms: Date.now() - started };
+      const note = truncated
+        ? ["复盘输出达到 token 上限（max-tokens）。", parsed.note].filter(Boolean).join(" ")
+        : parsed.note;
+      return { candidates: parsed.candidates, note, raw: parsed.raw, ms: Date.now() - started };
     },
   }));
 

@@ -66,6 +66,7 @@ topic 只能从下面索引里的 key 里挑；确实没有合适的才起新 ke
 输出：只输出一个 JSON 对象，不要代码围栏，不要任何解释文字。
 {"candidates":[{"action":"append|rewrite|delete","topic":"topic key 或 core","section":"append 的小标题","content":"append 的正文 / rewrite 的完整新内容 / delete 留空","reason":"一句话为什么","evidence":"transcript 里的原话或事实"}],"note":"candidates 为空时说明为什么这轮不用动记忆"}
 
+最多输出 5 条候选，优先保留影响最大的变更。简述理由，证据只摘录必要的短句。
 没有值得动的就返回 "candidates": []。这是正常结果，不是失败。宁可空，不要为了有产出而编。`;
 
 /** Tolerant extraction of the digest JSON; never throws, always reports why. */
