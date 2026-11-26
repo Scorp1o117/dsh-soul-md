@@ -67,6 +67,8 @@ Explicitly saved settings keep their values; options not set use the new default
 
 The topic index and recall summaries use the heading and first body line of the last `## YYYY-MM-DD` section, including the timestamped headings written by `memory_append`. Without a dated section, they use the file's first heading and first body line. `memory_append` suggests consolidation when a topic exceeds 8 KiB after an append. To merge duplicates or resolve conflicting conclusions, read the whole topic with `memory_read(topic)`, then use `memory_rewrite` to put the current summary first and move old conclusions into `###` subsections under History.
 
+With no `topic`, `memory_read` returns the core file body in `content` and the topic index in a separate `index` field. The index is rendered from `topics/*.md` on every assembly and belongs to no memory file: `memory_rewrite` strips a copied index section before writing and reports the stripped byte count, an index snapshot stored in `core.md` by an older release is ignored on read and injection, and the next append or rewrite clears it from the file. Single-file memory (layered mode off) is untouched, so a heading of that name stays ordinary content there.
+
 Persona settings live in the current profile; memory defaults to `$DSH_HOME/soul-md/memory/`. Back up and manage those files as needed. The interface follows the DSH language setting.
 
 ## Development and feedback

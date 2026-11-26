@@ -36,7 +36,7 @@ import { isAbsolute, join, dirname } from "node:path";
 import z from "@deepseek-ai/schemastery";
 import { resolveDshHome } from "@deepseek-ai/dsh-home-paths";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { createMemoryLayout, normalizeMemoryTopic, retainMemoryEnds } from "./memory-layout.js";
+import { createMemoryLayout, normalizeMemoryTopic, retainMemoryEnds, stripTopicIndex } from "./memory-layout.js";
 import { DIGEST, DIGEST_INSTRUCTIONS, parseDigestOutput, renderDigestTranscript } from "./digest.js";
 import { skipsSubagentSections } from "./subagents.js";
 import { boundedInteger, renderRecall, searchTopics } from "./memory-recall.js";
@@ -465,7 +465,24 @@ function apply(ctx, config) {
 
   // ── prompt sections (function text: resolved per assembly, hot by nature) ──
   const sectionDisposers = { persona: null, memory: null, recall: null };
+  // A queued microtask or an event dispatched during teardown can outlive this
+  // fiber. `ctx.effect` (and every prompt-section registration, which creates an
+  // effect on the calling context) throws "cannot create effect on inactive
+  // context" once the fiber is gone, and the host does not catch it, so every
+  // entry point below asks first. `uid` is cleared before the fiber disposes its
+  // own disposables; hosts without a fiber keep the old behaviour.
+  let disposed = false;
+  ctx.effect(() => () => { disposed = true; }, "soul-md.lifecycle()");
+  const active = () => {
+    if (disposed) return false;
+    try {
+      return ctx.fiber?.uid !== null;
+    } catch {
+      return false;
+    }
+  };
   function registerSections() {
+    if (!active()) return;
     if (sectionDisposers.recall) {
       sectionDisposers.recall();
       sectionDisposers.recall = null;
@@ -523,10 +540,17 @@ function apply(ctx, config) {
   // ── settings-backed configuration ─────────────────────────────────────────
   // DSH 0.1.7 exposes Config directly as live profile fields.
   const onSettingsChange = () => {
-    registerSections();
-    void maybeMigrate();
-    void publishWorkspaces();
-    startWorkspaceWatch();
+    if (!active()) return;
+    try {
+      registerSections();
+      void maybeMigrate();
+      void publishWorkspaces();
+      startWorkspaceWatch();
+    } catch (error) {
+      // A settings write can land while the host is tearing the plugin down;
+      // never let a best-effort refresh take the process with it.
+      try { ctx.logger.warn(`[soul-md] settings refresh skipped: ${String(error)}`); } catch { /* logger already gone */ }
+    }
   };
   ctx.on("settings/document-updated", (id) => {
     if (id === NS) onSettingsChange();
@@ -556,6 +580,7 @@ function apply(ctx, config) {
     return isAbsolute(p) ? p : join(dirname(legacy), p);
   };
   const maybeMigrate = async () => {
+    if (!active()) return;
     try {
       if (migrated) return;
       const settings = ctx.get("settings");
@@ -630,15 +655,18 @@ function apply(ctx, config) {
   let wsRetryTimer = undefined;
   let wsRetryCount = 0;
   function scheduleWsRetry() {
+    if (!active()) return;
     if (wsRetryTimer) return;
     if (wsRetryCount > 300) return; // give up after ~5 minutes of unavailability
     wsRetryTimer = setTimeout(() => {
       wsRetryTimer = undefined;
       wsRetryCount += 1;
+      if (!active()) return;
       void publishWorkspaces();
     }, 1000);
   }
   async function publishWorkspaces() {
+    if (!active()) return;
     try {
       const computed = computeWorkspaceList();
       if (computed === null) {
@@ -675,6 +703,7 @@ function apply(ctx, config) {
     }
     try {
       wsWatcher = watch(join(resolveDshHome(), "sessions"), { persistent: false }, () => {
+        if (!active()) return;
         clearTimeout(wsTimer);
         wsTimer = setTimeout(() => void publishWorkspaces(), 300);
       });
@@ -752,14 +781,20 @@ function apply(ctx, config) {
       const target = memoryTarget(agent, topic);
       const current = readCached(target.file);
       const inherited = current === null && target.legacySeed ? readCached(target.legacySeed) : null;
-      const existing = current ?? inherited ?? "";
+      // A core file written by an older release may end with a frozen index
+      // snapshot. Appending after it would hide the new entry inside a region
+      // every reader strips, so heal the file first and rewrite instead.
+      const healed = layeredEnabled() && !target.topic
+        ? stripTopicIndex(current ?? inherited ?? "")
+        : { text: current ?? inherited ?? "", stripped: "" };
+      const existing = healed.text;
       const totalBytes = byteLen(existing + block);
       if (totalBytes > (cfg().memory?.maxBytes ?? 1024 * 1024)) {
         throw new Error(`memory_append: memory file would exceed maxBytes (${cfg().memory.maxBytes}); consolidate with memory_rewrite first`);
       }
       await ensureParent(target.file);
       requireMemoryEnabled(agent);
-      if (current === null && inherited !== null) await writeFile(target.file, existing + block, "utf8");
+      if (healed.stripped || (current === null && inherited !== null)) await writeFile(target.file, existing + block, "utf8");
       else await appendFile(target.file, block, "utf8");
       fileCache.delete(target.file);
       rememberTopic(agentOf(exec), target.scope, target.topic);
@@ -775,9 +810,9 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "memory_read",
     description:
-      "Read your long-term memory back. Global mode reads only global memory; persona mode looks at the current card first and falls back to global memory. In layered mode, omit topic to read core memory plus the topic index, then pass a topic key to retrieve that topic's full text on demand.",
+      "Read your long-term memory back. Global mode reads only global memory; persona mode looks at the current card first and falls back to global memory. In layered mode, omit topic to read the core file body plus a separate `index` of stored topics, then pass a topic key to retrieve that topic's full text on demand. `content` is the file body only; `index` is rendered from topics/*.md on every read and is not part of any memory file.",
     parameters: {
-      topic: { type: "string", description: "Optional topic key to read in layered mode. Omit or pass core/core.md to read core memory plus the topic index." },
+      topic: { type: "string", description: "Optional topic key to read in layered mode. Omit or pass core/core.md to read the core file body plus the topic index." },
     },
     output: {
       schema: {
@@ -790,12 +825,14 @@ function apply(ctx, config) {
           source: { type: "string" },
           topic: { type: "string" },
           content: { type: "string" },
+          index: { type: "string" },
         },
       },
       render: (_args, value) => [{
         type: "text",
         text: value.exists
           ? `Memory from "${value.source}"${value.topic ? ` topic "${value.topic}"` : ""} (${value.bytes} bytes${value.truncated ? ", truncated" : ""}):\n${value.content}`
+            + (value.index ? `\n\n主题索引（目录，不属于文件内容，不要写回 / topic index, rendered from topics/*.md — do not write it back）:\n${value.index}` : "")
           : `Memory is empty or missing (scope: "${value.source}").`,
       }],
     },
@@ -808,21 +845,22 @@ function apply(ctx, config) {
         throw new Error("memory_read: `topic` requires memory.layered to be enabled");
       }
       const { exists, text, index, source, topic: resolvedTopic = "" } = memoryReadChain(agent, topic);
-      const full = [text, index].filter(Boolean).join("\n\n");
-      if (!exists || !full) return { exists: false, bytes: 0, truncated: false, source, topic: resolvedTopic, content: "" };
+      if (!exists || (!text && !index)) {
+        return { exists: false, bytes: 0, truncated: false, source, topic: resolvedTopic, content: "", index: "" };
+      }
       rememberTopic(agentOf(exec), source, resolvedTopic);
       const MAX = 20000;
-      const truncated = full.length > MAX;
-      const excerpt = index && index.length < MAX
-        ? [retainMemoryEnds(text, MAX - index.length - (text ? 2 : 0)), index].filter(Boolean).join("\n\n")
-        : retainMemoryEnds(full, MAX);
+      const truncated = text.length > MAX;
       return {
         exists: true,
-        bytes: byteLen(full),
+        bytes: byteLen(text),
         truncated,
         source,
         topic: resolvedTopic,
-        content: truncated ? `${excerpt}\n…(truncated; beginning and end of core retained when layered; use a topic or file read for complete memory)…` : full,
+        content: truncated
+          ? `${retainMemoryEnds(text, MAX)}\n…(truncated; beginning and end of core retained; use a topic read for complete memory)…`
+          : text,
+        index,
       };
     },
   }));
@@ -861,9 +899,9 @@ function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: "memory_rewrite",
     description:
-      "REPLACE one memory file in your CURRENT scope. In layered mode, omit topic for always-visible core.md or pass a topic key for topics/<topic>.md. Use for consolidation: merge, deduplicate and reorganize entries. Build the new content from memory_read output unless you deliberately drop entries. Pass an empty string to clear the selected file.",
+      "REPLACE one memory file in your CURRENT scope. In layered mode, omit topic for always-visible core.md or pass a topic key for topics/<topic>.md. Write the FILE BODY: `content` is the file, not the memory_read view. The topic index is rendered from topics/*.md on every assembly and is never stored, so an index section copied into `content` is stripped before writing. Use for consolidation: merge, deduplicate and reorganize entries. Build the new content from memory_read's `content` unless you deliberately drop entries. Pass an empty string to clear the selected file.",
     parameters: {
-      content: { type: "string", required: true, description: "The new full content of the memory file (markdown)." },
+      content: { type: "string", required: true, description: "The new full body of the memory file (markdown). The injected topic index is not part of the body and is removed if present." },
       topic: { type: "string", description: "Optional topic key in layered mode. Omit or pass core/core.md to replace core.md." },
     },
     output: {
@@ -874,19 +912,32 @@ function apply(ctx, config) {
           bytes: { type: "integer" },
           scope: { type: "string" },
           topic: { type: "string" },
+          strippedBytes: { type: "integer" },
+          hint: { type: "string" },
         },
       },
-      render: (_args, value) => [{ type: "text", text: `Memory rewritten (${value.bytes} bytes) in scope "${value.scope}"${value.topic ? ` topic "${value.topic}"` : ""}.` }],
+      render: (_args, value) => [{
+        type: "text",
+        text: `Memory rewritten (${value.bytes} bytes) in scope "${value.scope}"${value.topic ? ` topic "${value.topic}"` : ""}.`
+          + (value.hint ? `\n${value.hint}` : ""),
+      }],
     },
     isConcurrencySafe: () => false,
     async execute(args, exec) {
       const agent = agentOf(exec);
       requireMemoryEnabled(agent);
-      const content = String(args.content ?? "");
       const topic = normalizeMemoryTopic(args.topic);
       if (topic && !layeredEnabled()) {
         throw new Error("memory_rewrite: `topic` requires memory.layered to be enabled");
       }
+      // The injected index is a render of topics/*.md and exists only in layered
+      // mode. Writing a copied one into core.md froze a snapshot that the next
+      // assembly rendered twice; drop it here so a read-edit-write round trip
+      // stores the body alone. A single-file memory keeps such a heading: it is
+      // user content there, because nothing injects an index into it.
+      const { text: content, stripped } = !layeredEnabled() || topic
+        ? { text: String(args.content ?? ""), stripped: "" }
+        : stripTopicIndex(String(args.content ?? ""));
       const bytes = byteLen(content);
       if (bytes > (cfg().memory?.maxBytes ?? 1024 * 1024)) {
         throw new Error(`memory_rewrite: content exceeds maxBytes (${cfg().memory.maxBytes})`);
@@ -897,7 +948,12 @@ function apply(ctx, config) {
       await writeFile(target.file, content, "utf8");
       fileCache.delete(target.file);
       rememberTopic(agentOf(exec), target.scope, target.topic);
-      return { bytes, scope: target.scope, topic: target.topic };
+      const result = { bytes, scope: target.scope, topic: target.topic };
+      if (stripped) {
+        result.strippedBytes = byteLen(stripped);
+        result.hint = `Stripped ${result.strippedBytes} bytes of rendered topic index before writing; the index is rebuilt from topics/*.md on every injection and belongs in no file.`;
+      }
+      return result;
     },
   }));
 

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createMemoryLayout, renderTopicIndex, safeMemoryName, topicDescriptor } from "../memory-layout.js";
+import { createMemoryLayout, renderTopicIndex, safeMemoryName, stripTopicIndex, topicDescriptor } from "../memory-layout.js";
 
 const readText = (file) => {
   try {
@@ -13,6 +13,50 @@ const readText = (file) => {
     return null;
   }
 };
+
+test("an injected topic index is stripped from stored text, never from a fenced example", () => {
+  const index = renderTopicIndex([{ key: "project-z", title: "Project Z", summary: "Release notes" }]);
+  const body = "# Core\n\nresident memory";
+
+  assert.deepEqual(stripTopicIndex(body), { text: body, stripped: "" });
+  const snapshot = stripTopicIndex(`${body}\n\n${index}`);
+  assert.equal(snapshot.text, body);
+  assert.equal(snapshot.stripped, index);
+  // Writing the already-stripped body back is idempotent: no index, no growth.
+  assert.deepEqual(stripTopicIndex(snapshot.text), { text: body, stripped: "" });
+
+  // A heading inside a code fence is documentation, not a rendered index.
+  const fenced = `${body}\n\n\`\`\`md\n${index}\n\`\`\`\n\nTrailing note.`;
+  assert.deepEqual(stripTopicIndex(fenced), { text: fenced, stripped: "" });
+  // A later real index after that fenced example is still removed.
+  assert.equal(stripTopicIndex(`${fenced}\n\n${index}`).text, fenced);
+
+  // Windows line endings and a trailing space on the heading keep working.
+  const crlf = `${body}\r\n\r\n## 主题记忆索引 / Topic memory index \r\n- \`a\` — A`;
+  assert.equal(stripTopicIndex(crlf).text, body);
+});
+
+test("a layered read reports the topic index apart from the core body", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-soul-md-split-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const layout = createMemoryLayout(root, readText);
+  await mkdir(join(root, "Ada", "topics"), { recursive: true });
+  await writeFile(layout.coreFile("Ada"), "# Core\n\nAlways visible.", "utf8");
+  await writeFile(join(root, "Ada", "topics", "people.md"), "# People\n\nNames.", "utf8");
+
+  const overview = layout.readChain(["Ada"], { layered: true });
+  assert.equal(overview.text, "# Core\n\nAlways visible.");
+  assert.doesNotMatch(overview.text, /主题记忆索引/);
+  assert.match(overview.index, /`people` — People/);
+  assert.equal(overview.embeddedIndex, "");
+
+  // A core polluted by an older release reads back as its body alone.
+  const index = renderTopicIndex(overview.topics);
+  await writeFile(layout.coreFile("Ada"), `# Core\n\nAlways visible.\n\n${index}`, "utf8");
+  const healed = layout.readChain(["Ada"], { layered: true });
+  assert.equal(healed.text, "# Core\n\nAlways visible.");
+  assert.equal(healed.embeddedIndex, index);
+});
 
 test("consolidated topic metadata uses the first heading and first body line", () => {
   assert.deepEqual(topicDescriptor("fallback", "# Project A\n\nKeeps the launch checklist.\nMore."), {

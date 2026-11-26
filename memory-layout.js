@@ -61,16 +61,58 @@ function normalizeMemoryTopic(value) {
   return /^(core|core\.md)$/i.test(key) ? "" : key;
 }
 
+/** Heading that starts an injected topic index; reserved for the render, never the file. */
+const TOPIC_INDEX_HEADING = "## 主题记忆索引 / Topic memory index";
+
 function renderTopicIndex(topics) {
   if (!topics.length) return "";
   const rows = topics.map(({ key, title, summary }) =>
     `- \`${key}\` — ${title}${summary === title ? "" : `：${summary}`}`);
   return [
-    "## 主题记忆索引 / Topic memory index",
+    TOPIC_INDEX_HEADING,
     "用 memory_read 的 topic 参数按需读取全文 / Use memory_read(topic) for full text.",
     "",
     ...rows,
   ].join("\n");
+}
+
+/**
+ * Remove an injected topic-index snapshot from stored text.
+ *
+ * `renderTopicIndex` renders the topics directory for the prompt; it is a view,
+ * not file content. An agent that reads that view and writes it back froze a
+ * stale snapshot into core.md, which the next assembly then rendered beside the
+ * live index. The snapshot always starts at an exact heading line outside a
+ * code fence, so that heading ends the file body.
+ * @param text - stored memory text, as read from disk.
+ * @returns the body before the first index heading, and the removed tail.
+ */
+function stripTopicIndex(text) {
+  const value = String(text ?? "");
+  if (!value.includes(TOPIC_INDEX_HEADING)) return { text: value, stripped: "" };
+  let fence;
+  let offset = 0;
+  while (offset <= value.length) {
+    const newline = value.indexOf("\n", offset);
+    const end = newline === -1 ? value.length : newline;
+    const line = value.slice(offset, end).replace(/\r$/, "");
+    if (fence) {
+      const closing = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(line)?.[1];
+      if (closing?.startsWith(fence)) fence = undefined;
+    } else {
+      const opened = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+      if (opened) fence = opened;
+      else if (line.trim() === TOPIC_INDEX_HEADING) {
+        return {
+          text: value.slice(0, offset).replace(/[\s\uFEFF]+$/, ""),
+          stripped: value.slice(offset),
+        };
+      }
+    }
+    if (newline === -1) break;
+    offset = newline + 1;
+  }
+  return { text: value, stripped: "" };
 }
 
 /** Preserve both old context and recent appends within a character budget. */
@@ -123,9 +165,14 @@ function createMemoryLayout(root, readText) {
     const primaryText = readText(primary);
     const legacyText = primaryText === null ? readText(legacy) : null;
     const topics = listTopics(scope);
+    // The stored core may still carry an index snapshot written by an older
+    // release; drop it here so every reader (injection, memory_read, append)
+    // sees the body alone and the live index stays the only one.
+    const body = stripTopicIndex(primaryText ?? legacyText ?? "");
     return {
       exists: primaryText !== null || legacyText !== null || topics.length > 0,
-      text: primaryText ?? legacyText ?? "",
+      text: body.text,
+      embeddedIndex: body.stripped,
       source: scope,
       file: primaryText !== null ? primary : legacyText !== null ? legacy : primary,
       topics,
@@ -179,4 +226,4 @@ function createMemoryLayout(root, readText) {
   return { coreFile, legacyFile, listTopics, readChain, readLayeredScope, scopeDir, topicFile, writeTarget };
 }
 
-export { createMemoryLayout, normalizeMemoryTopic, renderTopicIndex, retainMemoryEnds, safeMemoryName, topicDescriptor };
+export { TOPIC_INDEX_HEADING, createMemoryLayout, normalizeMemoryTopic, renderTopicIndex, retainMemoryEnds, safeMemoryName, stripTopicIndex, topicDescriptor };

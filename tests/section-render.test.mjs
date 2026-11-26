@@ -196,6 +196,88 @@ test("memory tools append/read/rewrite core aliases and inject the resulting cor
   assert.equal((await host.tools.get("memory_read").execute({}, exec)).content, "replacement identity");
 });
 
+test("reading, editing and rewriting core keeps the rendered topic index out of the file", async (t) => {
+  const { host, home } = await boot(t, {
+    memory: { inject: true, layered: true, injectMaxChars: 8000, maxBytes: 1048576 },
+  });
+  const exec = { agent: agent() };
+  const tool = (name) => host.tools.get(name);
+  const count = (text, needle) => text.split(needle).length - 1;
+  const coreFile = join(home, "soul-md", "memory", "D", "core.md");
+
+  await tool("memory_append").execute({ topic: "project-z", section: "notes", content: "release checklist" }, exec);
+  assert.match(tool("memory_read").output.render({}, await tool("memory_read").execute({}, exec))[0].text,
+    /主题索引（目录，不属于文件内容，不要写回/);
+
+  // The reported round trip: read the whole memory view, edit one line, write
+  // the string back. The index must not become core content.
+  const read = await tool("memory_read").execute({}, exec);
+  assert.match(read.content, /resident memory body/);
+  assert.doesNotMatch(read.content, /主题记忆索引/);
+  assert.match(read.index, /`project-z` — .*notes：release checklist/);
+  const edited = `${read.content}\n\n- 111`;
+  const rewritten = await tool("memory_rewrite").execute({ content: `${edited}\n\n${read.index}` }, exec);
+  assert.ok(rewritten.strippedBytes > 0);
+  assert.match(rewritten.hint, /topics\/\*\.md/);
+
+  const stored = await readFile(coreFile, "utf8");
+  assert.equal(stored, edited);
+  assert.doesNotMatch(stored, /主题记忆索引/);
+
+  const again = await tool("memory_read").execute({}, exec);
+  assert.equal(again.content, edited);
+  assert.equal(count(again.content, "主题记忆索引"), 0);
+  assert.equal(count(again.index, "主题记忆索引"), 1);
+  // One live index in the prompt, not a stored snapshot beside it.
+  assert.equal(count(host.sections.get("soul:memory").text(parentAssembly()), "主题记忆索引"), 1);
+
+  // Writing the body alone keeps the file byte-identical to what was read.
+  const plain = await tool("memory_rewrite").execute({ content: again.content }, exec);
+  assert.equal(plain.strippedBytes, undefined);
+  assert.equal(await readFile(coreFile, "utf8"), edited);
+});
+
+test("a single-file memory keeps a heading that looks like an index", async (t) => {
+  // Nothing injects an index into single-file memory, so that heading there is
+  // user content and must survive a write.
+  const { host, home } = await boot(t, { memory: { inject: true, layered: false } });
+  const content = "# Core\n\n## 主题记忆索引 / Topic memory index\n\nmy own notes";
+  const result = await host.tools.get("memory_rewrite").execute({ content }, { agent: agent() });
+  assert.equal(result.strippedBytes, undefined);
+  assert.equal(await readFile(join(home, "soul-md", "memory", "D.md"), "utf8"), content);
+});
+
+test("a core polluted by an older release injects one index and keeps new appends", async (t) => {
+  const { host, home } = await boot(t, {
+    memory: { inject: true, layered: true, injectMaxChars: 8000, maxBytes: 1048576 },
+  });
+  const exec = { agent: agent() };
+  const tool = (name) => host.tools.get(name);
+  const count = (text, needle) => text.split(needle).length - 1;
+  const root = join(home, "soul-md", "memory", "D");
+  const coreFile = join(root, "core.md");
+  await mkdir(join(root, "topics"), { recursive: true });
+  const { renderTopicIndex } = await import("../memory-layout.js");
+  await writeFile(join(root, "topics", "project-z.md"), "# Project Z\n\nRelease checklist.", "utf8");
+  const index = renderTopicIndex([{ key: "project-z", title: "Project Z", summary: "Release checklist." }]);
+  await writeFile(coreFile, `resident memory body.\n\n${index}`, "utf8");
+
+  const read = await tool("memory_read").execute({}, exec);
+  assert.equal(read.content, "resident memory body.");
+  assert.equal(count(host.sections.get("soul:memory").text(parentAssembly()), "主题记忆索引"), 1);
+
+  // An append must land before any stale snapshot, not inside the stripped
+  // region where every reader would hide it.
+  await tool("memory_append").execute({ section: "new fact", content: "survives the heal" }, exec);
+  const stored = await readFile(coreFile, "utf8");
+  assert.doesNotMatch(stored, /主题记忆索引/);
+  assert.match(stored, /survives the heal/);
+  const injected = host.sections.get("soul:memory").text(parentAssembly());
+  assert.equal(count(injected, "主题记忆索引"), 1);
+  assert.match(injected, /survives the heal/);
+  assert.match(injected, /`project-z` — Project Z/);
+});
+
 test("persona and memory preserve literal prompt references by default", async (t) => {
   const { host, home } = await boot(t, { cards: { D: "card {{demo}}" } });
   await writeFile(join(home, "soul-md", "memory", "D.md"), "memory {{demo}}", "utf8");
@@ -328,8 +410,9 @@ test("layered memory_read keeps a long core's recent tail before the topic index
   const read = await host.tools.get("memory_read").execute({}, { agent: agent() });
   assert.equal(read.truncated, true);
   assert.match(read.content, /^EARLY /);
-  assert.match(read.content, / RECENT APPEND\n\n## 主题记忆索引/);
-  assert.match(read.content, /`project` — Project/);
+  assert.match(read.content, / RECENT APPEND/);
+  assert.match(read.content, /beginning and end of core retained/);
+  assert.match(read.index, /`project` — Project/);
 });
 
 test("coreSeparate injects the whole core ahead of a still-capped topic index", async (t) => {
@@ -426,11 +509,11 @@ test("appending refreshes the index and recall summary and hints when a topic gr
   const append = host.tools.get("memory_append");
   const read = (args = {}) => host.tools.get("memory_read").execute(args, exec);
   await topicFixture(home, "D", "powershell", "## 2026-10-08 — Initial test\n\nUse PowerShell 5.1.\n");
-  assert.match((await read()).content, /2026-10-08 — Initial test：Use PowerShell 5\.1\./);
+  assert.match((await read()).index, /2026-10-08 — Initial test：Use PowerShell 5\.1\./);
 
   const recent = await append.execute({ topic: "powershell", section: "Updated guidance", content: "Default to pwsh 7." }, exec);
   assert.equal(recent.hint, undefined);
-  const index = (await read()).content;
+  const index = (await read()).index;
   assert.match(index, /`powershell` — \d{4}-\d{2}-\d{2} \d{2}:\d{2} — Updated guidance：Default to pwsh 7\./);
   assert.doesNotMatch(index, /Initial test|PowerShell 5\.1/);
   assert.match((await read({ topic: "powershell" })).content, /Use PowerShell 5\.1\./);
@@ -495,7 +578,7 @@ test("keyword recall starts on the second human message, is stable per step and 
   assert.equal(host.contexts.get("soul:recall").interpolate, false);
   assert.match(recalled, /\{\{literal\}\}/, "memory braces must stay literal");
   const read = await host.tools.get("memory_read").execute({}, { agent: actor });
-  assert.match(read.content, /Different subject/);
+  assert.match(read.index, /Different subject/);
   await admit(host, actor, [humanMessage("3", "unmatched")]);
   assert.equal(await recallText(host, actor), "");
   assert.equal(await recallText(host, agent()), "", "other session objects must not share recall state");
