@@ -1099,4 +1099,4 @@ function apply(ctx, config) {
   }));
 }
 
-export { Config, NS, SECTION_MEMORY, SECTION_NAME, apply, inject, name };
+export { Config, apply, inject, name };
