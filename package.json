@@ -83,13 +83,11 @@
     "bugs": {
         "url": "https://github.com/Scorp1o117/dsh-soul-md/issues"
     },
-    "dependencies": {
-        "@deepseek-ai/schemastery": "^3.18.4"
-    },
     "peerDependencies": {
         "@deepseek-ai/dsh-home-paths": ">=0.2.0-rc.2 || >=0.2.1-rc.1 || >=0.2.2-rc.1",
         "@deepseek-ai/dsh-settings": ">=0.2.0-rc.2 || >=0.2.1-rc.1 || >=0.2.2-rc.1",
         "@deepseek-ai/dsh-tools": ">=0.2.0-rc.2 || >=0.2.1-rc.1 || >=0.2.2-rc.1",
+        "@deepseek-ai/schemastery": "^3.18.4",
         "react": "^18.2.0"
     },
     "devDependencies": {
@@ -98,6 +96,7 @@
         "@deepseek-ai/dsh-settings": "0.2.2-rc.2",
         "@deepseek-ai/dsh-system-prompt": "0.2.2-rc.2",
         "@deepseek-ai/dsh-tools": "0.2.2-rc.2",
+        "@deepseek-ai/schemastery": "^3.18.4",
         "react": "18.3.1",
         "react-test-renderer": "^18.3.1"
     },
